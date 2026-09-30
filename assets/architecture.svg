@@ -47,17 +47,17 @@
     }
   </style>
   <defs>
-    <marker id="a-app" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-app"/></marker>
-    <marker id="a-agent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-agent"/></marker>
-    <marker id="a-mcp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-mcp"/></marker>
+    <marker id="a-app" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-app"/></marker>
+    <marker id="a-agent" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-agent"/></marker>
+    <marker id="a-mcp" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-mcp"/></marker>
   </defs>
 
   <rect class="bg" width="960" height="640" rx="16"/>
 
   <!-- the direction MCP already provides -->
-  <path class="flow-mcp" d="M922 100 C 922 22, 60 22, 60 100" marker-end="url(#a-mcp)"/>
-  <rect class="bg" x="318" y="30" width="324" height="24"/>
-  <text class="lbl" x="480" y="46" text-anchor="middle">agent → app: the app's own MCP tools (what MCP already gives you)</text>
+  <path class="flow-mcp" d="M900 102 L900 73 Q900 66 893 66 L67 66 Q60 66 60 73 L60 101" marker-end="url(#a-mcp)"/>
+  <rect class="bg" x="296" y="55" width="368" height="22"/>
+  <text class="lbl" x="480" y="70" text-anchor="middle">agent → app: the app's own MCP tools (what MCP already gives you)</text>
 
   <!-- column titles -->
   <text class="col" x="144" y="86" text-anchor="middle">APPS</text>
@@ -164,5 +164,5 @@
     <text class="s" x="816" y="544">turn ends → Stop</text>
     <text class="s" x="816" y="560">hook parks again</text>
   </g>
-  <path class="flow-agent" d="M870 606 C 870 628, 256 628, 256 606" marker-end="url(#a-agent)" opacity="0.6"/>
+  <path class="flow-agent" d="M870 600 L870 613 Q870 620 863 620 L257 620 Q250 620 250 613 L250 601" marker-end="url(#a-agent)" opacity="0.7"/>
 </svg>
