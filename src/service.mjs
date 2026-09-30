@@ -39,7 +39,9 @@ export async function installService() {
       "",
     ].join("\n"), { mode: 0o644 });
     await run("systemctl", ["--user", "daemon-reload"]);
-    await run("systemctl", ["--user", "enable", "--now", UNIT]);
+    await run("systemctl", ["--user", "enable", UNIT]);
+    // restart, not start: a broker that is already running must pick up this install.
+    await run("systemctl", ["--user", "restart", UNIT]);
     return { manager: "systemd", path };
   }
   if (os === "darwin") {
