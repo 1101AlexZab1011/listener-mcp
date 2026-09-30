@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="title">
+  <title id="title">listener-mcp</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1b4b"/>
+      <stop offset="1" stop-color="#0f3d4a"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#a5b4fc"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <!-- agent → app: the direction MCP already covers (quiet, dashed) -->
+  <path d="M88 49 C 76 29, 46 29, 32 46" fill="none" stroke="#94a3b8" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 9" opacity="0.8"/>
+  <!-- app → agent: the return path listener-mcp adds -->
+  <path d="M36 82 C 50 102, 72 101, 85 80" fill="none" stroke="url(#beam)" stroke-width="7" stroke-linecap="round"/>
+  <path d="M75 84 L 85.5 79.5 L 86.5 91" fill="none" stroke="#a5b4fc" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- app -->
+  <rect x="16" y="50" width="28" height="28" rx="8" fill="#5eead4"/>
+  <!-- agent, listening -->
+  <circle cx="98" cy="62" r="11" fill="#a5b4fc"/>
+  <path d="M113 49 A 19 19 0 0 1 113 75" fill="none" stroke="#a5b4fc" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+</svg>

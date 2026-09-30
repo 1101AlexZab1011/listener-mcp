@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" width="960" height="640" role="img" aria-labelledby="t d">
+  <title id="t">listener-mcp architecture</title>
+  <desc id="d">Apps publish events to a local broker; the broker wakes or answers the long poll of attached agent sessions; agents reply and acknowledge through the listener MCP server.</desc>
+  <style>
+    text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .h { font-size: 15px; font-weight: 650; }
+    .s, .lbl, .mono { font-size: 12px; }
+    .lbl, .mono { font-size: 11.5px; }
+    .k { font-size: 12px; font-weight: 650; }
+    .col { font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .app, .broker, .agent { stroke-width: 1.5; }
+    .flow-app, .flow-agent { stroke-width: 2.5; fill: none; }
+    .flow-mcp { stroke-width: 1.5; fill: none; stroke-dasharray: 5 5; }
+    .numt { font-size: 12px; font-weight: 700; }
+    text { fill: #1f2433; }
+    .s, .col, .mono, .lbl { fill: #5b6275; }
+    .bg { fill: #ffffff; }
+    .app { fill: #e3f6f2; stroke: #0f9f8a; }
+    .broker { fill: #eceafd; stroke: #4f46e5; }
+    .agent { fill: #f1eafd; stroke: #7c3aed; }
+    .row, .step { fill: #f6f7fb; stroke: #c9cedb; }
+    .flow-app { stroke: #0f9f8a; }
+    .flow-agent { stroke: #7c3aed; }
+    .flow-mcp { stroke: #8a90a2; }
+    .num { fill: #4f46e5; }
+    .numt { fill: #ffffff; }
+    .m-app { fill: #0f9f8a; }
+    .m-agent { fill: #7c3aed; }
+    .m-mcp { fill: #8a90a2; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e6e9f0; }
+      .s, .col, .mono, .lbl { fill: #9aa3b5; }
+      .bg { fill: #0d1117; }
+      .app { fill: #0f2e2b; stroke: #2dd4bf; }
+      .broker { fill: #1e1f3d; stroke: #a5b4fc; }
+      .agent { fill: #271d3d; stroke: #c4b5fd; }
+      .row, .step { fill: #161b22; stroke: #30363d; }
+      .flow-app { stroke: #2dd4bf; }
+      .flow-agent { stroke: #c4b5fd; }
+      .flow-mcp { stroke: #6e7687; }
+      .num { fill: #a5b4fc; }
+      .numt { fill: #0d1117; }
+      .m-app { fill: #2dd4bf; }
+      .m-agent { fill: #c4b5fd; }
+      .m-mcp { fill: #6e7687; }
+    }
+  </style>
+  <defs>
+    <marker id="a-app" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-app"/></marker>
+    <marker id="a-agent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-agent"/></marker>
+    <marker id="a-mcp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="m-mcp"/></marker>
+  </defs>
+
+  <rect class="bg" width="960" height="640" rx="16"/>
+
+  <!-- the direction MCP already provides -->
+  <path class="flow-mcp" d="M922 100 C 922 22, 60 22, 60 100" marker-end="url(#a-mcp)"/>
+  <rect class="bg" x="318" y="30" width="324" height="24"/>
+  <text class="lbl" x="480" y="46" text-anchor="middle">agent → app: the app's own MCP tools (what MCP already gives you)</text>
+
+  <!-- column titles -->
+  <text class="col" x="144" y="86" text-anchor="middle">APPS</text>
+  <text class="col" x="480" y="86" text-anchor="middle">BROKER · one per user</text>
+  <text class="col" x="816" y="86" text-anchor="middle">AGENT SESSIONS</text>
+
+  <!-- apps -->
+  <g>
+    <rect class="app" x="24" y="104" width="240" height="68" rx="12"/>
+    <text class="h" x="42" y="132">Thunderbird add-on</text>
+    <text class="s" x="42" y="152">chat panel · paired by origin</text>
+    <rect class="app" x="24" y="186" width="240" height="68" rx="12"/>
+    <text class="h" x="42" y="214">Your app</text>
+    <text class="s" x="42" y="234">ListenerClient or plain HTTP</text>
+    <rect class="app" x="24" y="268" width="240" height="68" rx="12"/>
+    <text class="h" x="42" y="296">Scripts, watchers, cron</text>
+    <text class="s" x="42" y="316">listener-mcp publish mail/inbox/new</text>
+  </g>
+
+  <!-- broker -->
+  <g>
+    <rect class="broker" x="330" y="104" width="300" height="306" rx="14"/>
+    <text class="h" x="350" y="132">listener-mcp broker</text>
+    <text class="mono" x="350" y="151">http://127.0.0.1:47800 · SQLite</text>
+    <rect class="row" x="346" y="166" width="268" height="36" rx="8"/>
+    <text class="k" x="358" y="188">channels</text><text class="s" x="436" y="188">mail/chat/default, crm/lead/new</text>
+    <rect class="row" x="346" y="208" width="268" height="36" rx="8"/>
+    <text class="k" x="358" y="230">groups</text><text class="s" x="436" y="230">fan-out across, load-share within</text>
+    <rect class="row" x="346" y="250" width="268" height="36" rx="8"/>
+    <text class="k" x="358" y="272">leases</text><text class="s" x="436" y="272">at-least-once · ack · nack · expiry</text>
+    <rect class="row" x="346" y="292" width="268" height="36" rx="8"/>
+    <text class="k" x="358" y="314">presence</text><text class="s" x="436" y="314">who is parked, who is working</text>
+    <rect class="row" x="346" y="334" width="268" height="36" rx="8"/>
+    <text class="k" x="358" y="356">blobs</text><text class="s" x="436" y="356">files by id and local path</text>
+    <text class="s" x="480" y="394" text-anchor="middle">scoped tokens · Host + Origin checks · loopback only</text>
+  </g>
+
+  <!-- agents -->
+  <g>
+    <rect class="agent" x="696" y="104" width="240" height="84" rx="12"/>
+    <text class="h" x="714" y="132">Claude Code</text>
+    <text class="s" x="714" y="152">asyncRewake Stop hook parks after</text>
+    <text class="s" x="714" y="170">the turn: idle session stays free</text>
+    <rect class="agent" x="696" y="202" width="240" height="84" rx="12"/>
+    <text class="h" x="714" y="230">Codex</text>
+    <text class="s" x="714" y="250">Stop hook waits in the turn and</text>
+    <text class="s" x="714" y="268">continues with the events</text>
+    <rect class="agent" x="696" y="300" width="240" height="68" rx="12"/>
+    <text class="h" x="714" y="328">Any MCP agent</text>
+    <text class="s" x="714" y="348">listener_wait tool</text>
+  </g>
+
+  <!-- app ⇄ broker -->
+  <path class="flow-app" d="M270 212 H 322" marker-end="url(#a-app)"/>
+  <path class="flow-app" d="M322 240 H 270" marker-end="url(#a-app)"/>
+  <text class="lbl" x="296" y="202" text-anchor="middle">events</text>
+  <text class="lbl" x="296" y="258" text-anchor="middle">replies</text>
+
+  <!-- broker ⇄ agents -->
+  <path class="flow-agent" d="M638 200 H 688" marker-end="url(#a-agent)"/>
+  <path class="flow-agent" d="M688 240 H 638" marker-end="url(#a-agent)"/>
+  <text class="lbl" x="663" y="190" text-anchor="middle">wake</text>
+  <text class="lbl" x="663" y="258" text-anchor="middle">reply</text>
+  <text class="lbl" x="663" y="272" text-anchor="middle">ack</text>
+
+  <!-- the Claude Code loop -->
+  <text class="col" x="24" y="456">THE LOOP (CLAUDE CODE)</text>
+  <g>
+    <rect class="step" x="24" y="470" width="140" height="130" rx="10"/>
+    <circle class="num" cx="44" cy="492" r="11"/><text class="numt" x="44" y="496" text-anchor="middle">1</text>
+    <text class="k" x="36" y="524">attach</text>
+    <text class="s" x="36" y="544">listener_attach joins</text>
+    <text class="s" x="36" y="560">the app's group</text>
+
+    <rect class="step" x="180" y="470" width="140" height="130" rx="10"/>
+    <circle class="num" cx="200" cy="492" r="11"/><text class="numt" x="200" y="496" text-anchor="middle">2</text>
+    <text class="k" x="192" y="524">turn ends</text>
+    <text class="s" x="192" y="544">Stop hook parks on</text>
+    <text class="s" x="192" y="560">the broker; you can</text>
+    <text class="s" x="192" y="576">keep chatting</text>
+
+    <rect class="step" x="336" y="470" width="140" height="130" rx="10"/>
+    <circle class="num" cx="356" cy="492" r="11"/><text class="numt" x="356" y="496" text-anchor="middle">3</text>
+    <text class="k" x="348" y="524">app publishes</text>
+    <text class="s" x="348" y="544">mail/chat/default</text>
+    <text class="s" x="348" y="560">"summarise today"</text>
+
+    <rect class="step" x="492" y="470" width="140" height="130" rx="10"/>
+    <circle class="num" cx="512" cy="492" r="11"/><text class="numt" x="512" y="496" text-anchor="middle">4</text>
+    <text class="k" x="504" y="524">agent wakes</text>
+    <text class="s" x="504" y="544">hook exits 2; the</text>
+    <text class="s" x="504" y="560">event is the next</text>
+    <text class="s" x="504" y="576">message</text>
+
+    <rect class="step" x="648" y="470" width="140" height="130" rx="10"/>
+    <circle class="num" cx="668" cy="492" r="11"/><text class="numt" x="668" y="496" text-anchor="middle">5</text>
+    <text class="k" x="660" y="524">reply + ack</text>
+    <text class="s" x="660" y="544">listener_reply,</text>
+    <text class="s" x="660" y="560">listener_ack</text>
+
+    <rect class="step" x="804" y="470" width="132" height="130" rx="10"/>
+    <circle class="num" cx="824" cy="492" r="11"/><text class="numt" x="824" y="496" text-anchor="middle">6</text>
+    <text class="k" x="816" y="524">re-arm</text>
+    <text class="s" x="816" y="544">turn ends → Stop</text>
+    <text class="s" x="816" y="560">hook parks again</text>
+  </g>
+  <path class="flow-agent" d="M870 606 C 870 628, 256 628, 256 606" marker-end="url(#a-agent)" opacity="0.6"/>
+</svg>

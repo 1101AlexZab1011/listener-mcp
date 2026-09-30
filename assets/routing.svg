@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" width="960" height="360" role="img" aria-labelledby="t d">
+  <title id="t">Routing: channels, groups, agents</title>
+  <desc id="d">Each event goes to every group whose patterns match its channel. Inside a group one member receives it. One agent can belong to several groups.</desc>
+  <style>
+    text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .h { font-size: 14px; font-weight: 650; }
+    .s { font-size: 12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .col { font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+    .edge { fill: none; stroke-width: 1.8; }
+    text { fill: #1f2433; }
+    .s, .col { fill: #5b6275; }
+    .bg { fill: #ffffff; }
+    .chan { fill: #e3f6f2; stroke: #0f9f8a; stroke-width: 1.5; }
+    .group { fill: #eceafd; stroke: #4f46e5; stroke-width: 1.5; }
+    .agent { fill: #f1eafd; stroke: #7c3aed; stroke-width: 1.5; }
+    .e1 { stroke: #0f9f8a; }
+    .e2 { stroke: #7c3aed; }
+    .note { fill: #f6f7fb; stroke: #c9cedb; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e6e9f0; }
+      .s, .col { fill: #9aa3b5; }
+      .bg { fill: #0d1117; }
+      .chan { fill: #0f2e2b; stroke: #2dd4bf; }
+      .group { fill: #1e1f3d; stroke: #a5b4fc; }
+      .agent { fill: #271d3d; stroke: #c4b5fd; }
+      .e1 { stroke: #2dd4bf; }
+      .e2 { stroke: #c4b5fd; }
+      .note { fill: #161b22; stroke: #30363d; }
+    }
+  </style>
+  <rect class="bg" width="960" height="360" rx="16"/>
+  <text class="col" x="24" y="34">EVENTS ON CHANNELS</text>
+  <text class="col" x="360" y="34">GROUPS (patterns)</text>
+  <text class="col" x="696" y="34">AGENTS</text>
+
+  <!-- channels -->
+  <rect class="chan" x="24" y="56" width="236" height="44" rx="10"/><text class="mono" x="40" y="83">mail/chat/default</text>
+  <rect class="chan" x="24" y="144" width="236" height="44" rx="10"/><text class="mono" x="40" y="171">mail/inbox/new</text>
+  <rect class="chan" x="24" y="232" width="236" height="44" rx="10"/><text class="mono" x="40" y="259">crm/lead/new</text>
+
+  <!-- groups -->
+  <rect class="group" x="360" y="50" width="240" height="56" rx="10"/><text class="h" x="376" y="74">mail-chat</text><text class="mono" x="376" y="94">mail/chat/*</text>
+  <rect class="group" x="360" y="138" width="240" height="56" rx="10"/><text class="h" x="376" y="162">triage</text><text class="mono" x="376" y="182">mail/inbox/* · crm/**</text>
+  <rect class="group" x="360" y="226" width="240" height="56" rx="10"/><text class="h" x="376" y="250">audit</text><text class="mono" x="376" y="270">**</text>
+
+  <!-- channel → group edges -->
+  <path class="edge e1" d="M260 78 C 310 78, 310 78, 360 78"/>
+  <path class="edge e1" d="M260 78 C 320 78, 300 254, 360 254"/>
+  <path class="edge e1" d="M260 166 C 310 166, 310 166, 360 166"/>
+  <path class="edge e1" d="M260 166 C 320 166, 300 254, 360 254"/>
+  <path class="edge e1" d="M260 254 C 320 254, 300 166, 360 166"/>
+  <path class="edge e1" d="M260 254 C 310 254, 310 254, 360 254"/>
+
+  <!-- agents -->
+  <rect class="agent" x="696" y="46" width="240" height="30" rx="8"/><text class="s" x="712" y="66">claude:A</text>
+  <rect class="agent" x="696" y="82" width="240" height="30" rx="8"/><text class="s" x="712" y="102">claude:B</text>
+  <rect class="agent" x="696" y="151" width="240" height="30" rx="8"/><text class="s" x="712" y="171">codex:C</text>
+  <rect class="agent" x="696" y="239" width="240" height="30" rx="8"/><text class="s" x="712" y="259">claude:D</text>
+
+  <!-- group → agent edges -->
+  <path class="edge e2" d="M600 78 C 650 78, 646 61, 696 61"/>
+  <path class="edge e2" d="M600 78 C 650 78, 646 97, 696 97"/>
+  <path class="edge e2" d="M600 166 C 650 166, 646 166, 696 166"/>
+  <path class="edge e2" d="M600 254 C 650 254, 646 254, 696 254"/>
+
+  <!-- notes -->
+  <rect class="note" x="24" y="302" width="292" height="44" rx="10"/>
+  <text class="s" x="40" y="321">An event reaches every group whose</text>
+  <text class="s" x="40" y="337">patterns match its channel.</text>
+  <rect class="note" x="334" y="302" width="292" height="44" rx="10"/>
+  <text class="s" x="350" y="321">Inside a group, one member gets it:</text>
+  <text class="s" x="350" y="337">A and B share the chat load.</text>
+  <rect class="note" x="644" y="302" width="292" height="44" rx="10"/>
+  <text class="s" x="660" y="321">One agent, many apps: C triages mail</text>
+  <text class="s" x="660" y="337">and CRM. D audits everything.</text>
+</svg>

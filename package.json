@@ -1,0 +1,27 @@
+{
+  "name": "listener-mcp",
+  "version": "0.1.0",
+  "description": "A local event bridge that lets apps reach coding agents (Claude Code, Codex, …): the reverse direction of MCP.",
+  "license": "MIT",
+  "author": "Alexey Zabolotniy",
+  "repository": { "type": "git", "url": "git+https://github.com/1101AlexZab1011/listener-mcp.git" },
+  "homepage": "https://github.com/1101AlexZab1011/listener-mcp#readme",
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "bin": { "listener-mcp": "bin/listener-mcp.mjs" },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./src/client.mjs",
+    "./broker": "./src/broker/index.mjs"
+  },
+  "files": ["bin", "src", "skill", "docs", "assets", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test test/",
+    "broker": "node bin/listener-mcp.mjs broker"
+  },
+  "keywords": ["mcp", "agents", "claude-code", "codex", "events", "hooks", "bridge"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
+  }
+}
