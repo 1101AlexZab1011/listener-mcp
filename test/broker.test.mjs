@@ -210,7 +210,7 @@ test("blobs round-trip and dangerous types are not rendered", async (t) => {
   t.after(() => env.close());
   const png = await env.admin.uploadBlob(new Uint8Array([137, 80, 78, 71]), { name: "shot.png", type: "image/png" });
   assert.equal(png.size, 4);
-  assert.ok(png.path.endsWith("shot.png"));
+  assert.ok(png.path.endsWith(`${png.id}.shot.png`));
   const back = await env.admin.downloadBlob(png.id);
   assert.equal(back.headers.get("content-type"), "image/png");
   assert.deepEqual(new Uint8Array(await back.arrayBuffer()), new Uint8Array([137, 80, 78, 71]));

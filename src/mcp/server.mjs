@@ -19,7 +19,7 @@ const session = z.string().min(1).max(128).describe('This session\'s agent id, e
 
 export async function runMcpServer({ cwd = process.cwd(), env = process.env } = {}) {
   await ensureBroker({ env }).catch(() => {});
-  const server = new McpServer({ name: "listener-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "listener-mcp", version: "0.1.1" });
   /** Sessions this process has worked for; their subscriptions are kept alive. */
   const sessions = new Set();
   const client = async () => (await connect({ cwd, env })).client;

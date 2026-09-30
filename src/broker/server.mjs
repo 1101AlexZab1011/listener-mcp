@@ -18,7 +18,7 @@ import { Bus } from "./bus.mjs";
 import { readJson, Router, send, sendError } from "./http.mjs";
 import { Store } from "./store.mjs";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const JSON_LIMIT = 1024 * 1024;
 
 /**

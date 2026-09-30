@@ -216,7 +216,8 @@ response lists a result per event: `acked`, `requeued` or `not_found`.
 - `POST /v1/blobs?name=<file name>&type=<mime>` with the raw bytes as the
   body stores a file (25 MiB at most). It returns
   `{ id, name, type, size, path, url }`, where `path` is the local file a
-  same-machine agent can read directly.
+  same-machine agent can read directly. The file is named `<id>.<name>`, and
+  ids never contain `.`, so a path can always be mapped back to its blob id.
 - `GET /v1/blobs/:id` streams the file back. Images, PDF, plain text, JSON,
   audio and video are served inline. Everything else is served as an
   `application/octet-stream` download with a `sandbox` CSP.
@@ -235,5 +236,5 @@ response lists a result per event: `acked`, `requeued` or `not_found`.
 
 ## Health
 
-`GET /v1/health` returns `{ "ok": true, "protocol": 1, "version": "0.1.0" }`
+`GET /v1/health` returns `{ "ok": true, "protocol": 1, "version": "0.1.1" }`
 and needs no token. `GET /v1/whoami` describes the calling token.

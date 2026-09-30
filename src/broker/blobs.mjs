@@ -29,7 +29,8 @@ export class BlobStore {
     const day = new Date(this.now()).toISOString().slice(0, 10);
     const directory = join(this.root, day);
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    const path = join(directory, `${id}-${safeName(name)}`);
+    // "<id>.<name>": "." never occurs in an id, so the id can be read back from a path.
+    const path = join(directory, `${id}.${safeName(name)}`);
     let size = 0;
     const limit = this.maxBytes;
     const counter = new Transform({

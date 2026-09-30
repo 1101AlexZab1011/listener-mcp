@@ -1,6 +1,6 @@
 {
   "name": "listener-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A local event bridge that lets apps reach coding agents (Claude Code, Codex, …): the reverse direction of MCP.",
   "license": "MIT",
   "author": "Alexey Zabolotniy",
