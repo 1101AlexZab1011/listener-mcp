@@ -18,7 +18,7 @@ import { Bus } from "./bus.mjs";
 import { readJson, Router, send, sendError } from "./http.mjs";
 import { Store } from "./store.mjs";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const JSON_LIMIT = 1024 * 1024;
 
 /**
@@ -45,6 +45,11 @@ export async function startBroker({ config, env = process.env, database, port = 
 
   async function handle(request, response) {
     const url = new URL(request.url ?? "/", "http://broker");
+    // LISTENER_MCP_DEBUG=1 logs one line per request (never headers or bodies, so no tokens).
+    if (env.LISTENER_MCP_DEBUG) {
+      const started = Date.now();
+      response.once("finish", () => log(`${request.method} ${url.pathname} origin=${request.headers.origin ?? "-"} → ${response.statusCode} ${Date.now() - started}ms`));
+    }
     if (!allowedHosts.has(String(request.headers.host ?? "").toLowerCase())) throw errors.forbidden("Unexpected Host header");
 
     const origin = typeof request.headers.origin === "string" ? request.headers.origin : null;
@@ -138,8 +143,10 @@ function buildRoutes({ bus, store, blobs, config }) {
   router.add("GET", "/v1/health", () => ({ ok: true, protocol: PROTOCOL_VERSION, version: VERSION }), { public: true });
 
   // A browser extension cannot read files, so it obtains its token here, once:
-  // `listener-mcp pair` opens a short-lived grant for one exact origin.
-  router.add("GET", "/v1/pair", ({ origin }) => {
+  // `listener-mcp pair` opens a short-lived grant for one exact origin. POST is the
+  // canonical form: browsers must send Origin on POST, while extension GETs
+  // (Thunderbird, Firefox with host permissions) may omit it.
+  const pair = ({ origin }) => {
     if (!origin) throw errors.forbidden("Pairing is only available to browser origins");
     const grant = store.claimGrant(origin, Date.now());
     if (!grant) throw errors.forbidden("No open pairing grant for this origin. Run: listener-mcp pair --origin " + origin);
@@ -147,7 +154,10 @@ function buildRoutes({ bus, store, blobs, config }) {
     store.revokeTokens({ name: grant.name }, Date.now());
     store.insertToken({ ...record, createdAt: Date.now() });
     return { token: secret, name: grant.name, scopes: grant.scopes };
-  }, { public: true });
+  };
+
+  router.add("POST", "/v1/pair", pair, { public: true });
+  router.add("GET", "/v1/pair", pair, { public: true });
 
   router.add("GET", "/v1/whoami", ({ principal }) => ({ id: principal.id, name: principal.name, scopes: principal.scopes, origins: principal.origins }));
 

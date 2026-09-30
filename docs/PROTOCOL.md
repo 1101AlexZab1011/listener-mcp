@@ -6,7 +6,7 @@ The JS client in `src/client.mjs` is a thin wrapper around this API.
 
 ## Conventions
 
-- Every request except `GET /v1/health` and `GET /v1/pair` carries
+- Every request except `GET /v1/health` and `/v1/pair` carries
   `Authorization: Bearer <token>`.
 - Request and response bodies are JSON objects. Errors look like this:
   `{"error": {"code": "forbidden", "message": "…"}}`. The HTTP status and the
@@ -229,12 +229,14 @@ response lists a result per event: `acked`, `requeued` or `not_found`.
 - `GET /v1/tokens` lists tokens. `DELETE /v1/tokens/:id-or-name` revokes one.
 - `POST /v1/pairing-grants` with `{ name, scopes, origin, ttl_ms? }` opens a
   one-shot grant for a browser origin.
-- `GET /v1/pair` requires no token; the browser's `Origin` header must match
-  an open grant. It consumes the grant and returns `{ token, name, scopes }`
+- `POST /v1/pair` requires no token; the browser's `Origin` header must match
+  an open grant. Use POST: browsers must send `Origin` on it, while extension
+  GET requests (Thunderbird, Firefox with host permissions) may omit it. GET is
+  accepted too, for browsers that do send the header. It consumes the grant and returns `{ token, name, scopes }`
   for a new token bound to that origin. Earlier tokens with the same name are
   revoked.
 
 ## Health
 
-`GET /v1/health` returns `{ "ok": true, "protocol": 1, "version": "0.1.1" }`
+`GET /v1/health` returns `{ "ok": true, "protocol": 1, "version": "0.1.2" }`
 and needs no token. `GET /v1/whoami` describes the calling token.

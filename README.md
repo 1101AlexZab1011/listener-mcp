@@ -130,7 +130,7 @@ Browser extensions can't read token files, so they pair once instead:
 listener-mcp pair --name my-extension --origin moz-extension://<uuid> --scopes 'publish:myapp/**,read:myapp/**,blobs'
 ```
 
-The extension then calls `GET /v1/pair` once and receives a token bound to its
+The extension then calls `POST /v1/pair` once and receives a token bound to its
 own origin. The pairing grant expires after 10 minutes and works only once.
 
 ## Agent runtimes

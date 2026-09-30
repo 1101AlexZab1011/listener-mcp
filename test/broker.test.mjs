@@ -191,7 +191,7 @@ test("pairing gives a browser origin one token, once", async (t) => {
   const env = await testBroker();
   t.after(() => env.close());
   const origin = "moz-extension://6a1b9c1e-7a55-4b39-9f5a-2b3c4d5e6f70";
-  const pairRequest = () => fetch(`${env.broker.url}/v1/pair`, { headers: { origin } });
+  const pairRequest = () => fetch(`${env.broker.url}/v1/pair`, { method: "POST", headers: { origin } });
   assert.equal((await pairRequest()).status, 403, "no grant yet");
   await env.admin.openPairing({ name: "thunderbird", scopes: ["publish:mail/**", "read:mail/**", "blobs"], origin });
   const paired = await pairRequest();

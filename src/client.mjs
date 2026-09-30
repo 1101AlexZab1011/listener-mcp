@@ -174,7 +174,7 @@ export class ListenerClient {
  * extension page whose origin the grant names.
  */
 export async function pair(url, fetchImpl = globalThis.fetch.bind(globalThis)) {
-  const response = await fetchImpl(`${url.replace(/\/$/, "")}/v1/pair`);
+  const response = await fetchImpl(`${url.replace(/\/$/, "")}/v1/pair`, { method: "POST" });
   const value = await response.json().catch(() => ({}));
   if (!response.ok) throw new ListenerError(response.status, value?.error?.code ?? "pair_failed", value?.error?.message ?? "Pairing failed");
   return value;

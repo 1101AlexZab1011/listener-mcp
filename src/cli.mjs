@@ -236,7 +236,7 @@ const commands = {
     await runMcpServer();
   },
 
-  async version() { out("0.1.1"); },
+  async version() { out("0.1.2"); },
   async help() { out(HELP); },
 };
 
