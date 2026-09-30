@@ -54,17 +54,16 @@ There's no need for a port per agent or per app. Routing works by name:
 Requires Node.js 22.13 or later.
 
 ```sh
-npm install -g github:1101AlexZab1011/listener-mcp
+npm install -g --allow-git=root github:1101AlexZab1011/listener-mcp
 # no root? install into your home instead (make sure ~/.local/bin is on PATH):
-# npm install -g --prefix ~/.local github:1101AlexZab1011/listener-mcp
+# npm install -g --allow-git=root --prefix ~/.local github:1101AlexZab1011/listener-mcp
 
 listener-mcp service install     # optional: keep the broker running (systemd / launchd)
 listener-mcp doctor              # check the setup
 ```
 
-In a Node project you can also add it as a dependency
-(`npm install github:1101AlexZab1011/listener-mcp`). `init` then wires hooks to
-`npx --no-install listener-mcp`.
+`--allow-git=root` is needed from npm 12 on, which refuses git dependencies
+unless you opt in. Older npm versions accept the command without it.
 
 Without the service, the broker starts on demand the first time an agent tool
 needs it.
