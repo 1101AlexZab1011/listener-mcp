@@ -7,7 +7,8 @@
 //                 event matching a group is delivered to exactly one member of
 //                 that group; separate groups each get their own copy.
 //   subscription  one agent's membership in one group. An agent may join many
-//                 groups; a group may have many agents (load sharing).
+//                 groups; a group may have many agents (load sharing), or
+//                 just one if the group is exclusive.
 //   lease         a delivered event is held by one subscription until it is
 //                 acked, nacked, or the lease expires (then it is redelivered).
 //
@@ -54,7 +55,7 @@ const subscriptionWire = (sub, waiting) => ({
   created_at: iso(sub.created_at), last_seen_at: iso(sub.last_seen_at), waiting,
 });
 
-const groupWire = (group) => ({ name: group.name, channels: group.patterns, durable: group.durable, created_by: group.created_by, created_at: iso(group.created_at) });
+const groupWire = (group) => ({ name: group.name, channels: group.patterns, durable: group.durable, exclusive: group.exclusive, created_by: group.created_by, created_at: iso(group.created_at) });
 
 export class Bus {
   /**
@@ -174,19 +175,25 @@ export class Bus {
 
   // --- groups and subscriptions ----------------------------------------------------
 
-  createGroup(principal, { name, channels, from = "now", durable = true }) {
+  /**
+   * Create a group, or return the existing one. `exclusive` is policy, not
+   * routing, so passing it for an existing group updates it.
+   */
+  createGroup(principal, { name, channels, from = "now", durable = true, exclusive }) {
     assertGroup(name);
     if (!Array.isArray(channels) || !channels.length) throw errors.badRequest("channels must be a non-empty array of patterns");
     channels.forEach((pattern) => { assertPattern(pattern); requirePattern(principal, "subscribe", pattern); });
+    if (exclusive != null && typeof exclusive !== "boolean") throw errors.badRequest("exclusive must be a boolean");
     const existing = this.store.group(name);
     if (existing) {
       if (!sameSet(existing.patterns, channels)) throw errors.conflict("group_mismatch", `Group ${name} already exists with channels ${existing.patterns.join(", ")}`);
-      return groupWire(existing);
+      if (exclusive != null && exclusive !== existing.exclusive) this.store.setGroupExclusive(name, exclusive);
+      return groupWire(/** @type {any} */ (this.store.group(name)));
     }
     if (from !== "now" && from !== "earliest") throw errors.badRequest('from must be "now" or "earliest"');
     const now = this.now();
     this.store.transaction(() => {
-      this.store.insertGroup({ name, patterns: channels, startSeq: from === "now" ? this.store.lastSeq() : 0, durable, createdBy: principal.name, createdAt: now });
+      this.store.insertGroup({ name, patterns: channels, startSeq: from === "now" ? this.store.lastSeq() : 0, durable, exclusive: Boolean(exclusive), createdBy: principal.name, createdAt: now });
       if (from === "earliest") this.#backfill(name, channels, now);
     });
     return groupWire(/** @type {any} */ (this.store.group(name)));
@@ -224,8 +231,14 @@ export class Bus {
   /**
    * Join an agent to a group, creating the group if needed. Without a group
    * name the agent gets a private group `agent:<agent>`, removed when it leaves.
+   *
+   * An exclusive group admits one agent. While another agent is present the
+   * attach is refused with 409 group_occupied, unless `takeover` replaces it.
+   * A member that is not parked, holds no lease and has not been seen for
+   * `presence_ms` is gone (its session ended without detaching) and is
+   * replaced without asking.
    */
-  attach(principal, { agent, group, channels, from = "now", mode = "wake", meta = {}, durable }) {
+  attach(principal, { agent, group, channels, from = "now", mode = "wake", meta = {}, durable, exclusive, takeover = false }) {
     assertAgent(agent);
     if (!["wake", "poll"].includes(mode)) throw errors.badRequest('mode must be "wake" or "poll"');
     if (meta === null || typeof meta !== "object" || Array.isArray(meta) || JSON.stringify(meta).length > 4096) throw errors.badRequest("meta must be a small JSON object");
@@ -233,13 +246,23 @@ export class Bus {
     let existing = this.store.group(name);
     if (!existing) {
       if (!channels?.length) throw errors.badRequest(`Group ${name} does not exist; pass channels to create it`);
-      this.createGroup(principal, { name, channels, from, durable: durable ?? Boolean(group) });
+      this.createGroup(principal, { name, channels, from, durable: durable ?? Boolean(group), exclusive });
       existing = /** @type {any} */ (this.store.group(name));
     } else {
       if (channels?.length && !sameSet(existing.patterns, channels)) throw errors.conflict("group_mismatch", `Group ${name} listens on ${existing.patterns.join(", ")}, not ${channels.join(", ")}`);
       existing.patterns.forEach((pattern) => requirePattern(principal, "subscribe", pattern));
     }
     const now = this.now();
+    if (existing.exclusive) {
+      const others = this.store.subscriptions({ group: name }).filter((sub) => sub.agent !== agent);
+      const present = others.filter((sub) => this.#present(sub, now));
+      if (present.length && !takeover) {
+        const [holder] = present;
+        const state = this.waiters.has(holder.id) ? "listening" : `last seen ${Math.round((now - holder.last_seen_at) / 1000)} s ago`;
+        throw errors.conflict("group_occupied", `Group ${name} is exclusive and ${holder.agent} is attached (${state}). Pass takeover to replace it.`);
+      }
+      for (const sub of others) this.#remove(sub);
+    }
     let sub = this.store.subscriptionFor(agent, name);
     if (sub) {
       if (sub.token_id !== principal.id && !isAdmin(principal)) throw errors.forbidden(`Agent ${agent} is attached with another token`);
@@ -251,6 +274,13 @@ export class Bus {
     // A waiter already parked for this agent should now cover the new group too.
     for (const other of this.store.subscriptions({ agent })) if (other.id !== sub.id) this.waiters.get(other.id)?.wake("refresh");
     return { subscription: subscriptionWire(sub, this.waiters.has(sub.id)), group: groupWire(existing), pending: this.store.pendingCount(name, now) };
+  }
+
+  /** Is the session behind a subscription still there? */
+  #present(sub, now) {
+    if (this.waiters.has(sub.id)) return true;
+    if (now - sub.last_seen_at < this.limits.presence_ms) return true;
+    return this.store.activeLeases(sub.group, now).some((lease) => lease.subscription_id === sub.id);
   }
 
   subscriptions(principal, { agent } = {}) {
@@ -464,7 +494,7 @@ export class Bus {
         ...subscriptionWire(sub, this.waiters.has(sub.id)),
         working_on: leases.filter((lease) => lease.subscription_id === sub.id).map((lease) => lease.event_id),
       }));
-      return { name: group.name, channels: group.patterns, durable: group.durable, pending: this.store.pendingCount(group.name, now), members };
+      return { name: group.name, channels: group.patterns, durable: group.durable, exclusive: group.exclusive, pending: this.store.pendingCount(group.name, now), members };
     });
     const members = groups.flatMap((group) => group.members);
     return {

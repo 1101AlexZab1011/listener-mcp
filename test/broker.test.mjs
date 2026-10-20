@@ -236,3 +236,61 @@ test("an agent waits on all of its groups at once, including ones it joins mid-w
   const presence = await env.admin.presence("crm/**");
   assert.equal(presence.busy, false);
 });
+
+test("an exclusive group admits one agent: others are refused, may take over, and replace a vanished one", async (t) => {
+  const env = await testBroker({ presence_ms: 100 });
+  t.after(() => env.close());
+  const agent = await env.client("agent", agentScopes);
+  const first = await agent.attach({ agent: "claude:a", group: "chat", channels: ["mail/chat/*"], exclusive: true });
+  assert.equal(first.group.exclusive, true);
+  await assert.rejects(agent.attach({ agent: "claude:b", group: "chat" }), (error) => error.code === "group_occupied" && /claude:a/.test(error.message));
+  await agent.attach({ agent: "claude:a", group: "chat" });
+  assert.equal((await agent.subscriptions({ agent: "claude:a" })).length, 1, "the member itself may attach again");
+
+  const taken = await agent.attach({ agent: "claude:b", group: "chat", takeover: true });
+  assert.equal(taken.subscription.agent, "claude:b");
+  assert.equal((await agent.subscriptions({ agent: "claude:a" })).length, 0, "takeover detaches the old member");
+
+  // A parked member is present however long it waits.
+  const parked = agent.nextForAgent("claude:b", { waitMs: 400 });
+  await sleep(150);
+  await assert.rejects(agent.attach({ agent: "claude:c", group: "chat" }), { code: "group_occupied" });
+  await parked;
+  // Neither parked, nor holding a lease, nor seen for presence_ms: gone.
+  await sleep(150);
+  await agent.attach({ agent: "claude:c", group: "chat" });
+  const [group] = await env.admin.groups();
+  assert.deepEqual(group.members.map((member) => member.agent), ["claude:c"]);
+});
+
+test("exclusive is group policy: creating the group again updates it", async (t) => {
+  const env = await testBroker();
+  t.after(() => env.close());
+  await env.admin.createGroup({ name: "chat", channels: ["mail/chat/*"] });
+  assert.equal((await env.admin.createGroup({ name: "chat", channels: ["mail/chat/*"], exclusive: true })).exclusive, true);
+  assert.equal((await env.admin.createGroup({ name: "chat", channels: ["mail/chat/*"] })).exclusive, true, "omitting it keeps it");
+  assert.equal((await env.admin.createGroup({ name: "chat", channels: ["mail/chat/*"], exclusive: false })).exclusive, false);
+  const agent = await env.client("agent", agentScopes);
+  await agent.attach({ agent: "a", group: "chat" });
+  await agent.attach({ agent: "b", group: "chat" });
+});
+
+test("a database from before exclusive groups is migrated", async (t) => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { Store } = await import("../src/broker/store.mjs");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "listener-mcp-db-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "broker.db");
+  const old = new DatabaseSync(path);
+  old.exec("CREATE TABLE groups (name TEXT PRIMARY KEY, patterns TEXT NOT NULL, start_seq INTEGER NOT NULL, durable INTEGER NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL)");
+  old.prepare("INSERT INTO groups VALUES ('chat', '[\"mail/chat/*\"]', 0, 1, 'admin', 0)").run();
+  old.close();
+  const store = new Store(path);
+  t.after(() => store.close());
+  assert.equal(store.group("chat")?.exclusive, false);
+  store.setGroupExclusive("chat", true);
+  assert.equal(store.group("chat")?.exclusive, true);
+});

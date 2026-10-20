@@ -6,7 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { attachSession, connect, ensureBroker, formatEvents, waitForAgent } from "../agent.mjs";
+import { agentIdentities, attachSession, ensureBroker, formatEvents, identityAllowed, identityForApp, sessionIdentities, waitForSession } from "../agent.mjs";
 import { hostOfAgent } from "../hosts/index.mjs";
 
 const HEARTBEAT_MS = 60_000;
@@ -22,57 +22,79 @@ export async function runMcpServer({ cwd = process.cwd(), env = process.env } = 
   const server = new McpServer({ name: "listener-mcp", version: "0.1.2" });
   /** Sessions this process has worked for; their subscriptions are kept alive. */
   const sessions = new Set();
-  const client = async () => (await connect({ cwd, env })).client;
+  // Read fresh on every call: credentials and app profiles can change while the session runs.
+  const context = () => agentIdentities({ cwd, env });
+  /** The identities holding this session's subscriptions. */
+  const holding = async (agent) => sessionIdentities((await context()).identities, agent);
 
   // While the model works on an event, its lease must not run out and its
   // subscription must not look abandoned. The heartbeat covers both.
   const heartbeat = setInterval(async () => {
     try {
-      const c = await client();
-      for (const agent of sessions) for (const sub of await c.subscriptions({ agent })) await c.touch(sub.id);
+      for (const agent of sessions) for (const identity of await holding(agent)) for (const sub of identity.subscriptions) await identity.client.touch(sub.id);
     } catch { /* broker restarting; next beat retries */ }
   }, HEARTBEAT_MS);
   heartbeat.unref();
 
   server.registerTool("listener_status", {
-    description: "Show the listener-mcp broker status and this session's subscriptions.",
+    description: "Show the listener-mcp broker status, the apps registered for this user, and this session's subscriptions.",
     inputSchema: { session: session.optional() },
     annotations: { readOnlyHint: true },
   }, tool(async ({ session: agent }) => {
-    const c = await client();
-    const status = { broker: await c.health(), token: await c.whoami() };
-    if (agent) Object.assign(status, { subscriptions: await c.subscriptions({ agent }) });
+    const { identities, apps } = await context();
+    const status = {
+      broker: identities.length ? await identities[0].client.health() : "no agent credential here; register an app or work in a project",
+      apps: apps.map(({ name, group, channels, exclusive }) => ({ name, group, channels, exclusive: Boolean(exclusive) })),
+      credentials: await Promise.all(identities.map(async (identity) => ({
+        name: identity.name,
+        scopes: (await identity.client.whoami()).scopes,
+        ...(agent ? { subscriptions: await identity.client.subscriptions({ agent }) } : {}),
+      }))),
+    };
     return text(status);
   }));
 
   server.registerTool("listener_attach", {
-    description: "Start listening to app events: attach this session to a group of channels. Without arguments beyond session, uses the project's defaults from .listener-mcp.json.",
+    description: "Start listening to app events: attach this session to an app (by its registered name) or to a group of channels. With only session, uses the project's defaults from .listener-mcp.json.",
     inputSchema: {
       session,
+      app: z.string().optional().describe('A registered app, e.g. "mail" (see listener_status); works from any directory'),
       group: z.string().optional().describe("Consumer group to join (members share its events)"),
       channels: z.array(z.string()).optional().describe('Channel patterns, e.g. ["mail/chat/*"]; needed when creating a group'),
       from: z.enum(["now", "earliest"]).optional().describe("For a new group: deliver only new events, or the backlog too"),
+      takeover: z.boolean().optional().describe("Replace the agent attached to an exclusive group. Only when the user asked for it"),
     },
-  }, tool(async ({ session: agent, group, channels, from }) => {
-    const connection = await connect({ cwd, env });
+  }, tool(async ({ session: agent, app: appName, group, channels, from, takeover }) => {
+    const ctx = await context();
     const mode = hostOfAgent(agent)?.mode ?? "poll";
-    const result = await attachSession(connection.client, { agent, project: connection.project, group, channels, from, mode });
+    let identity = ctx.fallback;
+    let app = null;
+    if (appName) ({ app, identity } = await identityForApp(ctx, appName, env));
+    if (!identity) {
+      const known = ctx.apps.map((entry) => entry.name);
+      throw new Error(`No agent credential in ${cwd}: there is no .listener-mcp.json here or above.${known.length ? ` Pass app (registered: ${known.join(", ")}).` : " Register an app with listener-mcp app add, or run listener-mcp init in the project."}`);
+    }
+    const result = await attachSession(identity.client, { agent, project: app ? null : ctx.project, app, group, channels, from, mode, takeover });
     sessions.add(agent);
     const next = mode === "wake"
       ? "Now end your turn. Events will wake this session as messages; after handling each batch, end the turn again and the listener re-arms."
       : "Now call listener_wait. It returns when events arrive; handle them, then call listener_wait again.";
-    return text(`Attached ${agent} to group ${result.group.name} (${result.group.channels.join(", ")}); ${result.pending} event(s) waiting.\n${next}`);
+    return text(`Attached ${agent} to group ${result.group.name} (${result.group.channels.join(", ")}${result.group.exclusive ? "; exclusive" : ""}); ${result.pending} event(s) waiting.\n${next}`);
   }));
 
   server.registerTool("listener_detach", {
     description: "Stop listening: detach this session from one group, or from all of them.",
     inputSchema: { session, group: z.string().optional() },
   }, tool(async ({ session: agent, group }) => {
-    const c = await client();
-    const subs = (await c.subscriptions({ agent })).filter((sub) => !group || sub.group === group);
-    for (const sub of subs) await c.detach(sub.id);
+    const left = [];
+    for (const identity of await holding(agent)) {
+      for (const sub of identity.subscriptions.filter((entry) => !group || entry.group === group)) {
+        await identity.client.detach(sub.id);
+        left.push(sub.group);
+      }
+    }
     if (!group) sessions.delete(agent);
-    return text(subs.length ? `Detached from ${subs.map((sub) => sub.group).join(", ")}. The listener loop has ended.` : "This session was not attached.");
+    return text(left.length ? `Detached from ${left.join(", ")}. The listener loop has ended.` : "This session was not attached.");
   }));
 
   server.registerTool("listener_wait", {
@@ -85,14 +107,24 @@ export async function runMcpServer({ cwd = process.cwd(), env = process.env } = 
     annotations: { readOnlyHint: false },
   }, tool(async ({ session: agent, wait_seconds, max }) => {
     sessions.add(agent);
-    const c = await client();
+    const identities = await holding(agent);
+    if (!identities.length) return text("This session is not attached. Call listener_attach first.");
     const budgetMs = wait_seconds < 0 ? 86_400_000 : wait_seconds * 1000;
     const waiter = `mcp-${randomUUID()}`;
-    const result = await waitForAgent(c, agent, { budgetMs, waiter, max });
+    const result = await waitForSession(identities, agent, { budgetMs, waiter, max });
     if (result.events) return text(formatEvents(result.events, { agent }));
     if (result.ended === "timeout") return text("No events yet. Call listener_wait again to keep listening.");
     return text(`The wait ended (${result.ended}). This session is no longer listening.`);
   }));
+
+  /** The identity to publish on `channel` with: this session's first, then any allowed one. */
+  const publisher = async (agent, channel) => {
+    const { identities } = await context();
+    const preferred = agent ? await holding(agent) : [];
+    const identity = await identityAllowed([...preferred, ...identities], "publish", channel);
+    if (!identity) throw new Error(`No agent credential here may publish on ${channel}`);
+    return identity;
+  };
 
   server.registerTool("listener_publish", {
     description: "Publish an event on an app channel (e.g. a message into an app's chat).",
@@ -106,9 +138,9 @@ export async function runMcpServer({ cwd = process.cwd(), env = process.env } = 
       session: session.optional(),
     },
   }, tool(async ({ channel, text: body, data, type, to, reply_to, session: agent }) => {
-    const c = await client();
+    const { client } = await publisher(agent, channel);
     const payload = { ...(data ?? {}), ...(body != null ? { text: body } : {}) };
-    const event = await c.publish({ channel, data: payload, type, to, replyTo: reply_to, agent });
+    const event = await client.publish({ channel, data: payload, type, to, replyTo: reply_to, agent });
     return text({ published: event.id, channel: event.channel, seq: event.seq });
   }));
 
@@ -121,28 +153,49 @@ export async function runMcpServer({ cwd = process.cwd(), env = process.env } = 
       session: session.optional(),
     },
   }, tool(async ({ event_id, text: body, data, session: agent }) => {
-    const c = await client();
+    const { identities } = await context();
+    const preferred = agent ? await holding(agent) : [];
+    let original = null;
+    for (const identity of [...preferred, ...identities]) {
+      original = await identity.client.event(event_id).catch(() => null);
+      if (original) break;
+    }
+    if (!original) throw new Error(`No agent credential here can read event ${event_id}`);
+    const { client } = await publisher(agent, original.channel);
     const payload = { ...(data ?? {}), ...(body != null ? { text: body } : {}) };
-    const reply = await c.reply(event_id, { data: payload, agent });
+    const reply = await client.reply(original, { data: payload, agent });
     return text({ replied: reply.id, channel: reply.channel });
   }));
+
+  /** Settle events with every identity holding this session's subscriptions. */
+  const settle = async (agent, event_ids, outcome) => {
+    const results = new Map(event_ids.map((id) => [id, "not_found"]));
+    for (const identity of await holding(agent)) {
+      for (const entry of (await identity.client[outcome](event_ids, { agent })).results) {
+        if (entry.result !== "not_found") results.set(entry.event_id, entry.result);
+      }
+    }
+    return { results: [...results].map(([event_id, result]) => ({ event_id, result })) };
+  };
 
   server.registerTool("listener_ack", {
     description: "Acknowledge handled events so they are not redelivered. Call after replying.",
     inputSchema: { session, event_ids: z.array(z.string()).min(1) },
-  }, tool(async ({ session: agent, event_ids }) => text(await (await client()).ack(event_ids, { agent }))));
+  }, tool(async ({ session: agent, event_ids }) => text(await settle(agent, event_ids, "ack"))));
 
   server.registerTool("listener_nack", {
     description: "Give events back for redelivery, e.g. when handling failed.",
     inputSchema: { session, event_ids: z.array(z.string()).min(1) },
-  }, tool(async ({ session: agent, event_ids }) => text(await (await client()).nack(event_ids, { agent }))));
+  }, tool(async ({ session: agent, event_ids }) => text(await settle(agent, event_ids, "nack"))));
 
   server.registerTool("listener_history", {
     description: "Read recent events on a channel or pattern (oldest first).",
     inputSchema: { channel: z.string(), after: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(500).default(50) },
     annotations: { readOnlyHint: true },
   }, tool(async ({ channel, after, limit }) => {
-    const c = await client();
+    const identity = await identityAllowed((await context()).identities, "read", channel);
+    if (!identity) throw new Error(`No agent credential here may read ${channel}`);
+    const c = identity.client;
     const events = after == null ? (await c.events({ channel, before: Number.MAX_SAFE_INTEGER, limit })) : await c.events({ channel, after, limit });
     return text(events);
   }));

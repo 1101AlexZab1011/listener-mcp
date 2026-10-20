@@ -5,7 +5,8 @@
 //   mode       "wake" if the runtime can wake an idle session from outside,
 //              "poll" if the session must wait inside a turn
 //   agentId    session id → agent id ("claude:<id>")
-//   install    write the runtime's MCP config, hooks and skill into a project
+//   install    write the runtime's MCP config, hooks and skill into a project,
+//              or into the user's home for every session (scope "user")
 //   uninstall  remove what install wrote
 //   hooks      handlers for `listener-mcp hook <event> --host <name>`; each
 //              gets the hook's stdin JSON and returns { exitCode, stdout?, stderr? }

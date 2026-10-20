@@ -9,6 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { testBroker, sleep } from "./helpers.mjs";
 import { saveCredential } from "../src/config.mjs";
+import { saveApp } from "../src/apps.mjs";
 import { ListenerClient } from "../src/client.mjs";
 
 const cli = fileURLToPath(new URL("../bin/listener-mcp.mjs", import.meta.url));
@@ -124,4 +125,128 @@ test("the MCP server attaches, waits, replies and acks", async (t) => {
   assert.equal(thread.replies[0].data.text, "4");
   assert.equal(thread.replies[0].from.agent, "codex:m1");
   assert.equal((await env.admin.presence("app/chat/default")).busy, false);
+});
+
+/** An app registered for this user, with its own credential, as `app add` leaves it. */
+async function registerApp(env, processEnv) {
+  const { token } = await env.admin.createToken({ name: "demo-agent", scopes: ["subscribe:demo/chat/**", "publish:demo/chat/**", "read:demo/chat/**"] });
+  await saveCredential("demo-agent", token, processEnv);
+  await saveApp({ name: "demo", credential: "demo-agent", group: "demo-chat", channels: ["demo/chat/**"], from: "now", exclusive: true }, processEnv);
+}
+
+async function mcpClient(t, { cwd, env }) {
+  const transport = new StdioClientTransport({ command: process.execPath, args: [cli, "mcp"], env, cwd, stderr: "pipe" });
+  const client = new Client({ name: "test", version: "1.0.0" });
+  await client.connect(transport);
+  t.after(() => client.close());
+  return async (name, args) => {
+    const result = await client.callTool({ name, arguments: args });
+    return { error: Boolean(result.isError), text: result.content[0].text };
+  };
+}
+
+test("a session in any directory attaches to a registered app, and the app takes one agent", async (t) => {
+  const env = await testBroker();
+  const anywhere = await mkdtemp(join(tmpdir(), "listener-mcp-anywhere-"));
+  t.after(async () => { await env.close(); await rm(anywhere, { recursive: true, force: true }); });
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
+  await registerApp(env, processEnv);
+
+  const context = await run(["hook", "session-start", "--host", "claude"], { env: processEnv, cwd: anywhere, input: { session_id: "x", cwd: anywhere } });
+  assert.match(context.stdout, /listen to when the user asks: demo/);
+
+  const call = await mcpClient(t, { cwd: anywhere, env: processEnv });
+  const bare = await call("listener_attach", { session: "claude:x" });
+  assert.ok(bare.error);
+  assert.match(bare.text, /registered: demo/);
+  const attached = await call("listener_attach", { session: "claude:x", app: "demo" });
+  assert.ok(!attached.error, attached.text);
+  assert.match(attached.text, /group demo-chat .*exclusive/);
+  const second = await call("listener_attach", { session: "claude:y", app: "demo" });
+  assert.ok(second.error);
+  assert.match(second.text, /exclusive and claude:x is attached/);
+
+  const hook = run(["hook", "stop", "--host", "claude", "--budget", "20"], { env: processEnv, cwd: anywhere, input: { session_id: "x", cwd: anywhere } });
+  await sleep(400);
+  const asked = await env.admin.publish({ channel: "demo/chat/default", data: { text: "hello from anywhere" } });
+  const woke = await hook;
+  assert.equal(woke.code, 2);
+  assert.match(woke.stderr, /hello from anywhere/);
+
+  assert.ok(!(await call("listener_reply", { event_id: asked.id, text: "hi", session: "claude:x" })).error);
+  assert.match((await call("listener_ack", { session: "claude:x", event_ids: [asked.id] })).text, /acked/);
+  assert.equal((await env.admin.event(asked.id)).replies[0].from.agent, "claude:x");
+  const outside = await call("listener_publish", { channel: "other/x", text: "no", session: "claude:x" });
+  assert.ok(outside.error, "agents never fall back to the admin token");
+  assert.match(outside.text, /may publish on other\/x/);
+
+  const taken = await call("listener_attach", { session: "claude:y", app: "demo", takeover: true });
+  assert.ok(!taken.error, taken.text);
+  assert.match((await call("listener_detach", { session: "claude:x" })).text, /not attached/);
+});
+
+test("a project session also attached to an app waits on both credentials", async (t) => {
+  const { env, project, processEnv } = await setup(t);
+  await registerApp(env, processEnv);
+  const call = await mcpClient(t, { cwd: project, env: processEnv });
+  assert.ok(!(await call("listener_attach", { session: "claude:p" })).error);
+  assert.ok(!(await call("listener_attach", { session: "claude:p", app: "demo" })).error);
+  const status = JSON.parse((await call("listener_status", { session: "claude:p" })).text);
+  assert.deepEqual(status.credentials.map((entry) => [entry.name, entry.subscriptions.length]), [["proj-agent", 1], ["demo-agent", 1]]);
+
+  for (const channel of ["demo/chat/default", "app/chat/default"]) {
+    const hook = run(["hook", "stop", "--host", "claude", "--budget", "20"], { env: processEnv, cwd: project, input: { session_id: "p", cwd: project } });
+    await sleep(400);
+    const sent = await env.admin.publish({ channel, data: { text: `on ${channel}` } });
+    const woke = await hook;
+    assert.equal(woke.code, 2);
+    assert.match(woke.stderr, new RegExp(`on ${channel}`));
+    assert.match((await call("listener_ack", { session: "claude:p", event_ids: [sent.id] })).text, /acked/);
+  }
+  assert.match((await call("listener_detach", { session: "claude:p" })).text, /app-chat, demo-chat/);
+});
+
+test("app add mints a credential once, keeps an existing one, and sets the group policy", async (t) => {
+  const env = await testBroker();
+  t.after(() => env.close());
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
+  const added = await run(["app", "add", "demo", "--channels", "demo/chat/**", "--group", "demo-chat", "--exclusive"], { env: processEnv });
+  assert.equal(added.code, 0, added.stderr);
+  assert.match(added.stdout, /\(new\)/);
+  const profile = JSON.parse(await readFile(join(env.home, "apps", "demo.json"), "utf8"));
+  assert.deepEqual(profile, { version: 1, credential: "demo-agent", group: "demo-chat", channels: ["demo/chat/**"], from: "now", exclusive: true });
+  const token = await readFile(join(env.home, "credentials", "demo-agent.token"), "utf8");
+  assert.equal((await env.admin.groups())[0].exclusive, true);
+
+  const again = await run(["app", "add", "demo", "--no-exclusive"], { env: processEnv });
+  assert.equal(again.code, 0, again.stderr);
+  assert.match(again.stdout, /\(kept\)/);
+  assert.equal(await readFile(join(env.home, "credentials", "demo-agent.token"), "utf8"), token);
+  assert.equal((await env.admin.groups())[0].exclusive, false);
+
+  const narrow = await run(["app", "add", "wide", "--channels", "wide/**", "--credential", "demo-agent"], { env: processEnv });
+  assert.equal(narrow.code, 1);
+  assert.match(narrow.stderr, /may not subscribe to wide\/\*\*/);
+  assert.match((await run(["app", "list"], { env: processEnv })).stdout, /"name": "demo"/);
+});
+
+test("init --user wires every session through the home directory, and uninstall --user undoes it", async (t) => {
+  const env = await testBroker();
+  const home = await mkdtemp(join(tmpdir(), "listener-mcp-home-"));
+  t.after(async () => { await env.close(); await rm(home, { recursive: true, force: true }); });
+  // No claude CLI on PATH: the MCP registration is reported, not written.
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url, HOME: home, PATH: join(home, "bin") };
+  const result = await run(["init", "--user", "--command", "listener-mcp"], { env: processEnv });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /claude mcp add-json --scope user listener/);
+  const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
+  assert.equal(settings.hooks.Stop[0].hooks[0].command, "listener-mcp hook stop --host claude --budget 1999940");
+  assert.ok(settings.permissions.allow.includes("mcp__listener"));
+  await readFile(join(home, ".claude", "skills", "listener", "SKILL.md"));
+  assert.match(await readFile(join(home, ".codex", "config.toml"), "utf8"), /\[mcp_servers\.listener\]/);
+  await readFile(join(home, ".agents", "skills", "listener", "SKILL.md"));
+
+  const removed = await run(["uninstall", "--user"], { env: processEnv });
+  assert.equal(removed.code, 0, removed.stderr);
+  assert.equal(JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8")).hooks, undefined);
 });

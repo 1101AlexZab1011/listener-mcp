@@ -1,6 +1,6 @@
 ---
 name: listener
-description: Connect this agent session to apps through listener-mcp so apps can reach the agent. Attach to app channels, handle incoming app events (chat messages, notifications), reply, and acknowledge. Use when asked to listen to, connect to, or monitor an app or an in-app chat, or to stop listening.
+description: Connect this agent session to apps through listener-mcp so apps can reach the agent. Attach to a registered app or to app channels, handle incoming app events (chat messages, notifications), reply, and acknowledge. Use when asked to listen to, connect to, or monitor an app or an in-app chat, or to stop listening.
 ---
 
 # listener-mcp
@@ -13,9 +13,16 @@ the session context from the listener-mcp session-start hook; pass it as
 
 ## Start listening
 
-1. Call `listener_attach` with `session`. With no other arguments it uses the
-   project's defaults from `.listener-mcp.json`; pass `group`/`channels` to
-   attach elsewhere. An agent may be attached to several groups at once.
+1. Call `listener_attach` with `session`, and with `app` to reach an app
+   registered for this user (`listener_status` lists them; the session context
+   names them too). That works from any directory. With only `session` it uses
+   the project's defaults from `.listener-mcp.json`; pass `group`/`channels`
+   to attach elsewhere. An agent may be attached to several groups at once.
+   - If the result says the group is **exclusive** and another agent is
+     attached, tell the user which agent holds it. Retry with
+     `takeover: true` only when the user asks you to replace it. An agent
+     that left without detaching is replaced automatically after a few
+     minutes.
 2. Follow the instruction in the result:
    - **wake mode** (Claude Code): end your turn. The session stays free for
      the user; app events arrive as new messages and wake you.

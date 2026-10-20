@@ -21,7 +21,7 @@ The JS client in `src/client.mjs` is a thin wrapper around this API.
 | 401    | `unauthorized`                               | Missing or unknown token                                 |
 | 403    | `forbidden`                                  | Scope, Host or Origin check failed                       |
 | 404    | `not_found`                                  | No such resource, or not visible to this token           |
-| 409    | `superseded`, `detached`, `group_mismatch`   | The wait was replaced or ended; the group has other channels |
+| 409    | `superseded`, `detached`, `group_mismatch`, `group_occupied` | The wait was replaced or ended; the group has other channels; an exclusive group already has an agent |
 | 413    | `too_large`                                  | The body exceeds a limit                                 |
 
 ## Names
@@ -109,16 +109,20 @@ matching the channel, except:
 - groups that contain the publishing agent;
 - when `to` is set, groups that don't contain the target.
 
-A **subscription** is one agent's membership in one group.
+A **subscription** is one agent's membership in one group. An **exclusive**
+group has at most one member: it serves apps whose conversation belongs to a
+single agent, such as a chat panel.
 
 ### `POST /v1/groups`
 
 ```json
-{ "name": "mail-chat", "channels": ["mail/chat/*"], "from": "earliest", "durable": true }
+{ "name": "mail-chat", "channels": ["mail/chat/*"], "from": "earliest", "durable": true, "exclusive": false }
 ```
 
 - Idempotent: creating a group again with the same channels returns it, while
-  different channels give `409 group_mismatch`.
+  different channels give `409 group_mismatch`. `exclusive` is policy rather
+  than routing, so passing it for an existing group updates it; omitting it
+  keeps the current value.
 - `from: "earliest"` backfills retained events.
 - A durable group outlives its members, so events queue while nobody is
   attached.
@@ -129,7 +133,7 @@ A **subscription** is one agent's membership in one group.
 ### `POST /v1/subscriptions`: attach
 
 ```json
-{ "agent": "claude:…", "group": "mail-chat", "channels": ["mail/chat/*"], "from": "now", "mode": "wake", "meta": {} }
+{ "agent": "claude:…", "group": "mail-chat", "channels": ["mail/chat/*"], "from": "now", "mode": "wake", "meta": {}, "exclusive": false, "takeover": false }
 ```
 
 - Without `group`, the agent gets a private, non-durable group
@@ -138,6 +142,13 @@ A **subscription** is one agent's membership in one group.
 - `mode` (`wake` or `poll`) is informational: it records how the host
   delivers events.
 - Attaching again updates the existing subscription.
+- `exclusive` applies when the attach creates the group.
+- In an exclusive group, attaching while another agent is present fails with
+  `409 group_occupied`, whose message names that agent. `takeover: true`
+  detaches it and attaches the caller. A member counts as present while a
+  wait is parked, while it holds a lease, or for `presence_ms` (3 minutes by
+  default) after it was last seen. A member that is none of these left
+  without detaching, and the next attach replaces it without `takeover`.
 
 The response is `{ subscription, group, pending }`.
 

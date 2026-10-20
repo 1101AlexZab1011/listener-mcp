@@ -3,11 +3,14 @@
 // at the bus from a shell.
 import { parseArgs } from "node:util";
 import { basename, resolve } from "node:path";
+import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
-import { brokerUrl, ensureConfig, files, loadConfig, readAdminToken, saveCredential, credentialPath } from "./config.mjs";
+import { brokerUrl, ensureConfig, files, loadConfig, readAdminToken, readCredential, saveCredential, credentialPath } from "./config.mjs";
 import { ListenerClient } from "./client.mjs";
 import { ensureBroker, formatEvents, readStdinJson, connect } from "./agent.mjs";
+import { assertAppName, listApps, loadApp, removeApp, saveApp } from "./apps.mjs";
 import { findProject, writeProject } from "./project.mjs";
+import { covers } from "./protocol.mjs";
 import { host, hosts } from "./hosts/index.mjs";
 
 const HELP = `listener-mcp: let apps reach coding agents.
@@ -23,8 +26,15 @@ Projects
   init [--agent claude,codex] [--channels 'app/**'] [--group name] [--from now|earliest]
        [--credential name] [--command listener-mcp] [--auto-attach] [--no-start]
                                  wire this project: token, MCP server, hooks, skill
-  uninstall [--agent claude,codex]
+  init --user [--agent claude,codex] [--command listener-mcp]
+                                 wire every agent session of this user: MCP server, hooks, skill
+  uninstall [--user] [--agent claude,codex]
                                  remove the hooks and MCP entries init added
+
+Apps (reachable from any session once init --user is done)
+  app add <name> --channels 'app/**' [--group g] [--from now|earliest] [--exclusive]
+          [--credential name]    register an app: its agent token, durable group and profile
+  app list | app remove <name>
 
 Tokens
   token create --name n --scopes 'publish:app/**,read:app/**' [--origin o] [--save] [--replace]
@@ -35,7 +45,8 @@ Events
   publish <channel> [text] [--type t] [--data json] [--to agent] [--reply-to id] [--wait-reply s]
   events <pattern> [--after seq] [--limit n] [--follow]
   group create <name> --channels a,b [--from earliest] | group list | group delete <name>
-  attach --agent id (--group g | --channels a,b) [--mode wake|poll]   detach --agent id [--group g]
+  attach --agent id (--group g | --channels a,b) [--mode wake|poll] [--takeover]
+  detach --agent id [--group g]
   wait --agent id [--timeout s] [--max n]        lease events (prints JSON; exit 1 on timeout)
   ack|nack --agent id <event ids…>
 
@@ -95,8 +106,23 @@ const commands = {
     await check("admin token", async () => { await readAdminToken(); return files().adminToken; });
     await check("listener-mcp on PATH", () => execFileSync(process.platform === "win32" ? "where" : "which", ["listener-mcp"], { encoding: "utf8" }).trim());
     const project = await findProject();
-    await check("project", async () => { if (!project) throw new Error("no .listener-mcp.json here or above (run listener-mcp init)"); return project.path; });
+    const apps = await listApps();
+    await check("project", async () => {
+      if (project) return project.path;
+      if (apps.length) return "none here; sessions use the registered apps";
+      throw new Error("no .listener-mcp.json here or above, and no registered apps (run listener-mcp init, or app add)");
+    });
     if (project?.config.credential) await check(`credential ${project.config.credential}`, async () => { const { client } = await connect(); return (await client.whoami()).scopes.join(" "); });
+    for (const app of apps) {
+      await check(`app ${app.name}`, async () => {
+        if (!app.credential) return `group ${app.group}, default credential`;
+        const client = new ListenerClient({ url: brokerUrl(await loadConfig()), token: await readCredential(app.credential) });
+        const { scopes } = await client.whoami();
+        const missing = app.channels.filter((pattern) => !scopes.some((scope) => scope.startsWith("subscribe:") && covers(scope.slice(10), pattern)));
+        if (missing.length) throw new Error(`credential ${app.credential} may not subscribe to ${missing.join(", ")}`);
+        return `group ${app.group}${app.exclusive ? " (exclusive)" : ""}, credential ${app.credential}`;
+      });
+    }
     for (const item of checks) out(`${item.ok ? "ok  " : "FAIL"}  ${item.check}: ${item.detail}`);
     if (checks.some((item) => !item.ok)) process.exitCode = 1;
   },
@@ -105,7 +131,9 @@ const commands = {
     const { values } = parseArgs({ args, options: {
       agent: { type: "string" }, channels: { type: "string" }, group: { type: "string" }, from: { type: "string" },
       credential: { type: "string" }, command: { type: "string" }, "auto-attach": { type: "boolean" }, "no-start": { type: "boolean" },
+      user: { type: "boolean" },
     } });
+    if (values.user) return initUser(values);
     const root = resolve(".");
     const found = await findProject(root);
     const existing = found?.root === root ? found.config : null;
@@ -132,10 +160,60 @@ const commands = {
   },
 
   async uninstall(args) {
-    const { values } = parseArgs({ args, options: { agent: { type: "string" } } });
-    const root = resolve(".");
-    for (const name of list(values.agent) ?? Object.keys(hosts)) await host(name).uninstall(root);
-    out("Removed listener-mcp hooks and MCP entries. .listener-mcp.json and the skill files are left in place.");
+    const { values } = parseArgs({ args, options: { agent: { type: "string" }, user: { type: "boolean" } } });
+    const root = values.user ? homedir() : resolve(".");
+    for (const name of list(values.agent) ?? Object.keys(hosts)) await host(name).uninstall(root, { scope: values.user ? "user" : "project" });
+    out(values.user
+      ? "Removed listener-mcp's user-level hooks and MCP entries. App profiles, credentials and the skill files are left in place."
+      : "Removed listener-mcp hooks and MCP entries. .listener-mcp.json and the skill files are left in place.");
+  },
+
+  async app([action, ...args]) {
+    const { values, positionals } = parseArgs({ args, allowPositionals: true, allowNegative: true, options: {
+      channels: { type: "string" }, group: { type: "string" }, from: { type: "string" }, exclusive: { type: "boolean" },
+      credential: { type: "string" }, "no-start": { type: "boolean" },
+    } });
+    if (action === "list") return out(await listApps());
+    if (action === "remove") {
+      const name = assertAppName(positionals[0]);
+      if (!(await loadApp(name))) throw new Error(`No app "${name}" is registered`);
+      await removeApp(name);
+      return out(`Removed app ${name}. Its group and credential are left in place (listener-mcp group delete, token revoke).`);
+    }
+    if (action !== "add") throw new Error("Usage: listener-mcp app add|list|remove");
+    const name = assertAppName(positionals[0]);
+    const existing = await loadApp(name);
+    const channels = list(values.channels) ?? existing?.channels;
+    if (!channels?.length) throw new Error(`Pass --channels, e.g. --channels '${name}/**' (the channels the app's agents listen to)`);
+    const from = values.from ?? existing?.from ?? "now";
+    if (from !== "now" && from !== "earliest") throw new Error("--from must be now or earliest");
+    const app = {
+      name,
+      credential: values.credential ?? existing?.credential ?? `${name}-agent`,
+      group: values.group ?? existing?.group ?? name,
+      channels,
+      from: /** @type {"now" | "earliest"} */ (from),
+      exclusive: values.exclusive ?? existing?.exclusive ?? false,
+    };
+
+    await ensureConfig();
+    if (!values["no-start"]) await ensureBroker();
+    const url = brokerUrl(await loadConfig());
+    const admin = new ListenerClient({ url, token: await readAdminToken() });
+    // An existing credential is kept: the app may have given it more scopes than its channels.
+    let token = await readCredential(app.credential).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+    const minted = !token;
+    if (!token) {
+      const scopes = [...channels.flatMap((pattern) => [`subscribe:${pattern}`, `publish:${pattern}`, `read:${pattern}`]), "blobs"];
+      ({ token } = await admin.createToken({ name: app.credential, scopes, replace: true }));
+      await saveCredential(app.credential, token);
+    }
+    const { scopes } = await new ListenerClient({ url, token }).whoami();
+    const missing = channels.filter((pattern) => !scopes.some((scope) => scope === "admin" || (scope.startsWith("subscribe:") && covers(scope.slice(10), pattern))));
+    if (missing.length) throw new Error(`Credential ${app.credential} may not subscribe to ${missing.join(", ")}. Widen it with listener-mcp token create --name ${app.credential} --replace --save --scopes …, or pass another --credential`);
+    await admin.createGroup({ name: app.group, channels, from: app.from, exclusive: app.exclusive });
+    const path = await saveApp(app);
+    out(`App ${name} registered\n\n  ${path}\n  ${credentialPath(app.credential)}${minted ? " (new)" : " (kept)"}\n\nGroup ${app.group} on ${channels.join(", ")}${app.exclusive ? ", exclusive: one agent at a time" : ""}.\nAgents attach from any session with listener_attach and app "${name}" (after listener-mcp init --user).`);
   },
 
   async token([action, ...args]) {
@@ -193,9 +271,9 @@ const commands = {
   },
 
   async attach(args) {
-    const { values } = parseArgs({ args, options: { agent: { type: "string" }, group: { type: "string" }, channels: { type: "string" }, from: { type: "string" }, mode: { type: "string" }, credential: { type: "string" } } });
+    const { values } = parseArgs({ args, options: { agent: { type: "string" }, group: { type: "string" }, channels: { type: "string" }, from: { type: "string" }, mode: { type: "string" }, takeover: { type: "boolean" }, credential: { type: "string" } } });
     const client = await adminClient(values);
-    out(await client.attach({ agent: values.agent, group: values.group, channels: list(values.channels), from: values.from, mode: values.mode ?? "poll" }));
+    out(await client.attach({ agent: values.agent, group: values.group, channels: list(values.channels), from: values.from, mode: values.mode ?? "poll", takeover: values.takeover }));
   },
 
   async detach(args) {
@@ -239,6 +317,20 @@ const commands = {
   async version() { out("0.1.2"); },
   async help() { out(HELP); },
 };
+
+/** `init --user`: hooks, MCP server and skill for every session, in the user's home. */
+async function initUser(values) {
+  const root = homedir();
+  const agents = list(values.agent) ?? Object.keys(hosts);
+  agents.forEach(host);
+  const command = values.command ?? (await detectCommand(root));
+  await ensureConfig();
+  if (!values["no-start"]) await ensureBroker();
+  const written = [];
+  for (const name of agents) written.push(...(await host(name).install(root, { command, scope: "user" })));
+  const apps = await listApps();
+  out(`listener-mcp is wired into every agent session of this user\n\n${written.map((path) => `  ${path}`).join("\n")}\n\nAgents: ${agents.join(", ")} · apps: ${apps.length ? apps.map((app) => app.name).join(", ") : "none yet (listener-mcp app add)"}\nRestart agent sessions so they load the MCP server and hooks.`);
+}
 
 async function settle(args, outcome) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { agent: { type: "string" }, subscription: { type: "string" }, credential: { type: "string" } } });

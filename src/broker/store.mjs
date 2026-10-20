@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS groups (
   patterns TEXT NOT NULL,
   start_seq INTEGER NOT NULL,
   durable INTEGER NOT NULL,
+  exclusive INTEGER NOT NULL DEFAULT 0,
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
@@ -116,6 +117,10 @@ export class Store {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.db.exec(schema);
+    // Databases from before exclusive groups lack the column.
+    if (!this.db.prepare("PRAGMA table_info(groups)").all().some((column) => column.name === "exclusive")) {
+      this.db.exec("ALTER TABLE groups ADD COLUMN exclusive INTEGER NOT NULL DEFAULT 0");
+    }
     this.db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1')").run();
   }
 
@@ -230,9 +235,11 @@ export class Store {
 
   // --- groups and subscriptions -------------------------------------------------
 
-  insertGroup({ name, patterns, startSeq, durable, createdBy, createdAt }) {
-    this.db.prepare("INSERT INTO groups (name, patterns, start_seq, durable, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(name, json(patterns), startSeq, durable ? 1 : 0, createdBy, createdAt);
+  insertGroup({ name, patterns, startSeq, durable, exclusive = false, createdBy, createdAt }) {
+    this.db.prepare("INSERT INTO groups (name, patterns, start_seq, durable, exclusive, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(name, json(patterns), startSeq, durable ? 1 : 0, exclusive ? 1 : 0, createdBy, createdAt);
   }
+
+  setGroupExclusive(name, exclusive) { this.db.prepare("UPDATE groups SET exclusive = ? WHERE name = ?").run(exclusive ? 1 : 0, name); }
 
   group(name) {
     const row = this.db.prepare("SELECT * FROM groups WHERE name = ?").get(name);
@@ -244,7 +251,7 @@ export class Store {
   deleteGroup(name) { return Number(this.db.prepare("DELETE FROM groups WHERE name = ?").run(name).changes); }
 
   #group(row) {
-    return { name: row.name, patterns: parse(row.patterns, []), start_seq: Number(row.start_seq), durable: Boolean(row.durable), created_by: row.created_by, created_at: Number(row.created_at) };
+    return { name: row.name, patterns: parse(row.patterns, []), start_seq: Number(row.start_seq), durable: Boolean(row.durable), exclusive: Boolean(row.exclusive), created_by: row.created_by, created_at: Number(row.created_at) };
   }
 
   insertSubscription({ id, agent, group, mode, tokenId, meta = {}, now }) {

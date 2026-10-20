@@ -31,11 +31,12 @@ src/
     bus.mjs           delivery policy: groups, leases, waiters, presence
     store.mjs         SQLite persistence (the only file with SQL)
     blobs.mjs         file storage for attachments
-  agent.mjs           shared agent-side logic: connect, attach, format, wait
+  agent.mjs           shared agent-side logic: credentials, attach, format, wait
   hosts/              one module per agent runtime (claude, codex)
   mcp/server.mjs      the `listener` MCP server
   service.mjs         systemd / launchd integration
   project.mjs         .listener-mcp.json
+  apps.mjs            app profiles: <config dir>/apps/<name>.json
   cli.mjs             `listener-mcp` commands
 skill/SKILL.md        instructions installed into agent runtimes
 ```
@@ -79,6 +80,22 @@ from then on, which prevents two loops from taking turns to steal it.
 **Presence is parked requests.** A heartbeat only proves that a process is
 alive. `listening` is true only while a wait is actually parked, and it drops
 the moment the connection closes.
+
+**Projects and apps.** A project's `.listener-mcp.json` sets the defaults for
+agents working in that directory. An app profile, registered once per user
+with `listener-mcp app add`, lets a session in any directory reach that app:
+it names the app's group, channels, agent credential and whether the group is
+exclusive. listener-mcp only carries these settings; each app chooses its own.
+`init --user` installs the MCP server, hooks and skill for every session, so
+an app is reachable without wiring each project.
+
+**Agents act with scoped credentials, never the admin token.** A session acts
+with its project's credential and with the credential of each app it
+attached to. The hooks and the MCP server wait on every credential that holds
+one of the session's subscriptions, and publish with the first one whose
+scopes allow the channel. An app's limits on its agents therefore hold in
+every directory. A session outside any project, attached to no app, has no
+credential at all.
 
 **Secrets never touch the repo.** `.listener-mcp.json` names a credential. The
 token itself lives in `~/.config/listener-mcp/credentials/` with mode 0600,

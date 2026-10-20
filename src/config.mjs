@@ -1,7 +1,8 @@
 // @ts-check
 // Where listener-mcp keeps its files, and how clients find the broker.
 //
-//   config dir  config.json, admin.token, credentials/<name>.token   (0700/0600)
+//   config dir  config.json, admin.token, credentials/<name>.token,
+//               apps/<name>.json                                      (0700/0600)
 //   state dir   broker.db, blobs/, broker.log                          (0700)
 //
 // LISTENER_MCP_HOME puts both under one directory, which is what tests and
@@ -40,6 +41,7 @@ export const files = (env = process.env) => {
     configDir: dirs.config,
     adminToken: join(dirs.config, "admin.token"),
     credentials: join(dirs.config, "credentials"),
+    apps: join(dirs.config, "apps"),
     database: join(dirs.state, "broker.db"),
     blobs: join(dirs.state, "blobs"),
     log: join(dirs.state, "broker.log"),
@@ -65,6 +67,9 @@ export const defaultConfig = () => ({
     lease_ms: 15 * 60_000,
     max_attempts: 10,
     retention_days: 30,
+    // A member of an exclusive group counts as gone once it is neither parked,
+    // nor holding a lease, nor seen for this long (agents heartbeat every 60 s).
+    presence_ms: 180_000,
   },
 });
 

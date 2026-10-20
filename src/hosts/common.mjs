@@ -58,7 +58,7 @@ export function splitCommand(command) {
 }
 
 /** Context text a session-start hook gives the model. */
-export function sessionContext({ agent, subscriptions, project, mode }) {
+export function sessionContext({ agent, subscriptions, project, apps = [], mode }) {
   const lines = [`listener-mcp: this session's agent id is "${agent}".`];
   if (subscriptions.length) {
     lines.push(`It is attached to: ${subscriptions.map((sub) => sub.group).join(", ")}.`);
@@ -68,6 +68,9 @@ export function sessionContext({ agent, subscriptions, project, mode }) {
   } else if (project?.config.attach) {
     const { group, channels } = project.config.attach;
     lines.push(`To listen to this project's app, use the listener skill (listener_attach with session "${agent}"; default ${group ? `group ${group}` : ""}${channels ? ` on ${channels.join(", ")}` : ""}).`);
+  }
+  if (!subscriptions.length && apps.length) {
+    lines.push(`Apps this session can listen to when the user asks: ${apps.map((app) => app.name).join(", ")} (listener_attach with session "${agent}" and app).`);
   }
   return lines.join("\n");
 }

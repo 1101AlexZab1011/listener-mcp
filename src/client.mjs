@@ -88,13 +88,14 @@ export class ListenerClient {
 
   // --- groups and subscriptions ---
 
-  createGroup({ name, channels, from, durable }) { return this.request("POST", "/v1/groups", { body: { name, channels, from, durable } }); }
+  createGroup({ name, channels, from, durable, exclusive }) { return this.request("POST", "/v1/groups", { body: { name, channels, from, durable, exclusive } }); }
   async groups() { return (await this.request("GET", "/v1/groups")).groups; }
   deleteGroup(name) { return this.request("DELETE", `/v1/groups/${encodeURIComponent(name)}`); }
 
   /**
    * Attach an agent to a group (created on demand when `channels` is given).
-   * @param {{ agent: string, group?: string, channels?: string[], from?: "now" | "earliest", mode?: "wake" | "poll", meta?: object, durable?: boolean }} options
+   * `takeover` replaces the present member of an exclusive group.
+   * @param {{ agent: string, group?: string, channels?: string[], from?: "now" | "earliest", mode?: "wake" | "poll", meta?: object, durable?: boolean, exclusive?: boolean, takeover?: boolean }} options
    */
   attach(options) { return this.request("POST", "/v1/subscriptions", { body: options }); }
   async subscriptions({ agent } = {}) { return (await this.request("GET", "/v1/subscriptions", { query: { agent } })).subscriptions; }

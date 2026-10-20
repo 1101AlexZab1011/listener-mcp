@@ -10,7 +10,7 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { connect, formatEvents, waitForAgent, attachSession } from "../agent.mjs";
+import { agentIdentities, attachSession, formatEvents, sessionIdentities, waitForSession } from "../agent.mjs";
 import { installSkill, readJsonFile, removeHooks, sessionContext, setHook, splitCommand, writeJsonFile } from "./common.mjs";
 
 const HOOK_TIMEOUT_S = 86_400;
@@ -23,6 +23,7 @@ export const codex = {
   mode: /** @type {const} */ ("poll"),
   agentId: (sessionId) => `codex:${sessionId}`,
 
+  /** Wire Codex into `root`: a project, or the home directory for every session (~/.codex, ~/.agents). */
   async install(root, { command }) {
     const hooksPath = join(root, ".codex", "hooks.json");
     const hooks = await readJsonFile(hooksPath, {});
@@ -64,28 +65,27 @@ export const codex = {
       const agent = codex.agentId(input.session_id);
       let subscriptions = [];
       let project = null;
+      let apps = [];
       try {
-        const connection = await connect({ cwd });
-        project = connection.project;
-        subscriptions = await connection.client.subscriptions({ agent });
-        if (!subscriptions.length && project?.config.auto_attach) {
-          await attachSession(connection.client, { agent, project, mode: "poll" });
-          subscriptions = await connection.client.subscriptions({ agent });
+        const context = await agentIdentities({ cwd });
+        ({ project, apps } = context);
+        subscriptions = (await sessionIdentities(context.identities, agent)).flatMap((identity) => identity.subscriptions);
+        if (!subscriptions.length && project?.config.auto_attach && context.fallback) {
+          await attachSession(context.fallback.client, { agent, project, mode: "poll" });
+          subscriptions = await context.fallback.client.subscriptions({ agent });
         }
       } catch { /* broker down: still tell the model who it is */ }
-      return { exitCode: 0, stdout: sessionContext({ agent, subscriptions, project, mode: "poll" }) };
+      return { exitCode: 0, stdout: sessionContext({ agent, subscriptions, project, apps, mode: "poll" }) };
     },
 
     async stop(input, { cwd, budgetS }) {
       if (!input.session_id) return { exitCode: 0 };
       const agent = codex.agentId(input.session_id);
-      let connection;
-      try { connection = await connect({ cwd }); } catch { return { exitCode: 0 }; }
-      let subscriptions;
-      try { subscriptions = await connection.client.subscriptions({ agent }); } catch { return { exitCode: 0 }; }
-      if (!subscriptions.length) return { exitCode: 0 };
+      let identities;
+      try { identities = await sessionIdentities((await agentIdentities({ cwd })).identities, agent); } catch { return { exitCode: 0 }; }
+      if (!identities.length) return { exitCode: 0 };
 
-      const result = await waitForAgent(connection.client, agent, { budgetMs: budgetS * 1000, waiter: randomUUID() });
+      const result = await waitForSession(identities, agent, { budgetMs: budgetS * 1000, waiter: randomUUID() });
       if (result.events) return { exitCode: 0, stdout: JSON.stringify({ decision: "block", reason: formatEvents(result.events, { agent }) }) };
       if (result.ended === "timeout") {
         return { exitCode: 0, stdout: JSON.stringify({ decision: "block", reason: "listener-mcp: no app events for a long while. Reply with just \"listening\" and end the turn so the listener re-arms." }) };

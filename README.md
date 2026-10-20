@@ -91,6 +91,32 @@ listener-mcp init --channels 'myapp/**' --group myapp
 Restart the agent session, then ask it to *"listen to myapp"*. Codex
 additionally asks you to trust the project's hooks (`/hooks`).
 
+## Reach an app from any session
+
+`init` ties an app to one project. To let any agent session reach an app,
+whatever directory it was started in, wire the agent runtimes once per user
+and register the app:
+
+```sh
+listener-mcp init --user                                   # hooks, MCP server and skill for every session
+listener-mcp app add myapp --channels 'myapp/**' --exclusive
+```
+
+- `init --user` puts the hooks and the skill in `~/.claude` (Codex:
+  `~/.codex`, `~/.agents/skills`) and registers the `listener` MCP server in
+  Claude Code's user scope.
+- `app add` mints the agent credential `myapp-agent` unless it already exists,
+  creates the durable group (named after the app unless you pass `--group`),
+  and writes the profile to `apps/myapp.json` in the config directory.
+- `--exclusive` lets one agent hold the app at a time, as a chat panel needs.
+  Another session that tries to attach is told which agent holds it, and can
+  replace it with `takeover`. A session that ended without detaching is
+  replaced automatically after `presence_ms` (3 minutes).
+
+Agents then attach with `listener_attach` and `app: "myapp"`. They act with
+the app's own credential, never the admin token, so the app's limits hold
+everywhere.
+
 ## Publish from your app
 
 ```sh
@@ -190,7 +216,7 @@ MCP tools available to the agent: `listener_attach`, `listener_detach`,
 
 ```text
 listener-mcp broker | service install|uninstall|status | status | doctor
-listener-mcp init | uninstall
+listener-mcp init [--user] | uninstall [--user] | app add|list|remove
 listener-mcp token create|list|revoke | pair
 listener-mcp publish <channel> [text] | events <pattern> [--follow]
 listener-mcp group create|list|delete | attach | detach | wait | ack | nack
