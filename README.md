@@ -117,6 +117,18 @@ Agents then attach with `listener_attach` and `app: "myapp"`. They act with
 the app's own credential, never the admin token, so the app's limits hold
 everywhere.
 
+An app with several independent conversations, such as chat sessions or open
+documents, puts an `{instance}` placeholder in its group and channels. Each
+instance is its own group, created when the first agent attaches:
+
+```sh
+listener-mcp app add myapp --group 'myapp-{instance}' --channels 'myapp/chat/{instance}' --exclusive --single-instance
+```
+
+Agents attach with `app: "myapp", instance: "<id>"`. With `--exclusive`, each
+instance holds one agent. With `--single-instance`, an agent holds one
+instance at a time: attaching to another moves it.
+
 ## Publish from your app
 
 ```sh

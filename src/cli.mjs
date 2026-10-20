@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { brokerUrl, ensureConfig, files, loadConfig, readAdminToken, readCredential, saveCredential, credentialPath } from "./config.mjs";
 import { ListenerClient } from "./client.mjs";
 import { ensureBroker, formatEvents, readStdinJson, connect } from "./agent.mjs";
-import { assertAppName, listApps, loadApp, removeApp, saveApp } from "./apps.mjs";
+import { assertAppName, hasInstances, instanceOf, listApps, loadApp, removeApp, saveApp } from "./apps.mjs";
 import { findProject, writeProject } from "./project.mjs";
 import { covers } from "./protocol.mjs";
 import { host, hosts } from "./hosts/index.mjs";
@@ -33,7 +33,9 @@ Projects
 
 Apps (reachable from any session once init --user is done)
   app add <name> --channels 'app/**' [--group g] [--from now|earliest] [--exclusive]
-          [--credential name]    register an app: its agent token, durable group and profile
+          [--single-instance] [--credential name]
+                                 register an app: its agent token, durable group and profile.
+                                 {instance} in --group/--channels makes one group per instance
   app list | app remove <name>
 
 Tokens
@@ -171,7 +173,7 @@ const commands = {
   async app([action, ...args]) {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, allowNegative: true, options: {
       channels: { type: "string" }, group: { type: "string" }, from: { type: "string" }, exclusive: { type: "boolean" },
-      credential: { type: "string" }, "no-start": { type: "boolean" },
+      "single-instance": { type: "boolean" }, credential: { type: "string" }, "no-start": { type: "boolean" },
     } });
     if (action === "list") return out(await listApps());
     if (action === "remove") {
@@ -194,7 +196,13 @@ const commands = {
       channels,
       from: /** @type {"now" | "earliest"} */ (from),
       exclusive: values.exclusive ?? existing?.exclusive ?? false,
+      single_instance: values["single-instance"] ?? existing?.single_instance ?? false,
     };
+    const instances = hasInstances(app);
+    if (app.single_instance && !instances) throw new Error("--single-instance needs {instance} in --group or --channels");
+    if (instances && !app.group.includes("{instance}")) throw new Error("With {instance} in --channels, --group needs it too, e.g. --group '" + name + "-{instance}'");
+    // A placeholder is checked by filling it in; such groups are created on first attach.
+    const sample = instanceOf(app, instances ? "sample" : undefined);
 
     await ensureConfig();
     if (!values["no-start"]) await ensureBroker();
@@ -204,16 +212,18 @@ const commands = {
     let token = await readCredential(app.credential).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
     const minted = !token;
     if (!token) {
-      const scopes = [...channels.flatMap((pattern) => [`subscribe:${pattern}`, `publish:${pattern}`, `read:${pattern}`]), "blobs"];
+      // A placeholder becomes a one-segment wildcard: the token covers every instance.
+      const scopes = [...channels.map((pattern) => pattern.split("{instance}").join("*")).flatMap((pattern) => [`subscribe:${pattern}`, `publish:${pattern}`, `read:${pattern}`]), "blobs"];
       ({ token } = await admin.createToken({ name: app.credential, scopes, replace: true }));
       await saveCredential(app.credential, token);
     }
     const { scopes } = await new ListenerClient({ url, token }).whoami();
-    const missing = channels.filter((pattern) => !scopes.some((scope) => scope === "admin" || (scope.startsWith("subscribe:") && covers(scope.slice(10), pattern))));
+    const missing = sample.channels.filter((pattern) => !scopes.some((scope) => scope === "admin" || (scope.startsWith("subscribe:") && covers(scope.slice(10), pattern))));
     if (missing.length) throw new Error(`Credential ${app.credential} may not subscribe to ${missing.join(", ")}. Widen it with listener-mcp token create --name ${app.credential} --replace --save --scopes …, or pass another --credential`);
-    await admin.createGroup({ name: app.group, channels, from: app.from, exclusive: app.exclusive });
+    if (!instances) await admin.createGroup({ name: app.group, channels, from: app.from, exclusive: app.exclusive });
     const path = await saveApp(app);
-    out(`App ${name} registered\n\n  ${path}\n  ${credentialPath(app.credential)}${minted ? " (new)" : " (kept)"}\n\nGroup ${app.group} on ${channels.join(", ")}${app.exclusive ? ", exclusive: one agent at a time" : ""}.\nAgents attach from any session with listener_attach and app "${name}" (after listener-mcp init --user).`);
+    const policy = `${app.exclusive ? ", exclusive: one agent at a time" : ""}${app.single_instance ? ", one instance per agent" : ""}`;
+    out(`App ${name} registered\n\n  ${path}\n  ${credentialPath(app.credential)}${minted ? " (new)" : " (kept)"}\n\n${instances ? `One group per instance (${app.group})` : `Group ${app.group}`} on ${channels.join(", ")}${policy}.\nAgents attach from any session with listener_attach and app "${name}"${instances ? " plus instance" : ""} (after listener-mcp init --user).`);
   },
 
   async token([action, ...args]) {

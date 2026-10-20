@@ -85,7 +85,10 @@ the moment the connection closes.
 agents working in that directory. An app profile, registered once per user
 with `listener-mcp app add`, lets a session in any directory reach that app:
 it names the app's group, channels, agent credential and whether the group is
-exclusive. listener-mcp only carries these settings; each app chooses its own.
+exclusive. An `{instance}` placeholder in the group and channels gives one
+group per instance (a chat session, a document), created on first attach;
+`single_instance` keeps an agent in one instance at a time. listener-mcp only
+carries these settings; each app chooses its own.
 `init --user` installs the MCP server, hooks and skill for every session, so
 an app is reachable without wiring each project.
 

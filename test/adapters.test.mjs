@@ -214,7 +214,7 @@ test("app add mints a credential once, keeps an existing one, and sets the group
   assert.equal(added.code, 0, added.stderr);
   assert.match(added.stdout, /\(new\)/);
   const profile = JSON.parse(await readFile(join(env.home, "apps", "demo.json"), "utf8"));
-  assert.deepEqual(profile, { version: 1, credential: "demo-agent", group: "demo-chat", channels: ["demo/chat/**"], from: "now", exclusive: true });
+  assert.deepEqual(profile, { version: 1, credential: "demo-agent", group: "demo-chat", channels: ["demo/chat/**"], from: "now", exclusive: true, single_instance: false });
   const token = await readFile(join(env.home, "credentials", "demo-agent.token"), "utf8");
   assert.equal((await env.admin.groups())[0].exclusive, true);
 
@@ -249,4 +249,51 @@ test("init --user wires every session through the home directory, and uninstall 
   const removed = await run(["uninstall", "--user"], { env: processEnv });
   assert.equal(removed.code, 0, removed.stderr);
   assert.equal(JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8")).hooks, undefined);
+});
+
+test("an app with instances: one agent per instance, and single_instance moves an agent", async (t) => {
+  const env = await testBroker();
+  const anywhere = await mkdtemp(join(tmpdir(), "listener-mcp-instances-"));
+  t.after(async () => { await env.close(); await rm(anywhere, { recursive: true, force: true }); });
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
+  await registerApp(env, processEnv);
+  await saveApp({ name: "chat", credential: "demo-agent", group: "chat-{instance}", channels: ["demo/chat/{instance}"], from: "now", exclusive: true, single_instance: true }, processEnv);
+  const call = await mcpClient(t, { cwd: anywhere, env: processEnv });
+
+  assert.match((await call("listener_attach", { session: "claude:a", app: "chat" })).text, /pass instance/);
+  assert.ok(!(await call("listener_attach", { session: "claude:a", app: "chat", instance: "one" })).error);
+  assert.ok(!(await call("listener_attach", { session: "claude:b", app: "chat", instance: "two" })).error);
+  assert.match((await call("listener_attach", { session: "claude:b", app: "chat", instance: "one" })).text, /exclusive and claude:a is attached/);
+
+  const hookA = run(["hook", "stop", "--host", "claude", "--budget", "20"], { env: processEnv, cwd: anywhere, input: { session_id: "a", cwd: anywhere } });
+  const hookB = run(["hook", "stop", "--host", "claude", "--budget", "20"], { env: processEnv, cwd: anywhere, input: { session_id: "b", cwd: anywhere } });
+  await sleep(400);
+  await env.admin.publish({ channel: "demo/chat/one", data: { text: "for one" } });
+  await env.admin.publish({ channel: "demo/chat/two", data: { text: "for two" } });
+  const [wokeA, wokeB] = await Promise.all([hookA, hookB]);
+  assert.match(wokeA.stderr, /for one/);
+  assert.doesNotMatch(wokeA.stderr, /for two/);
+  assert.match(wokeB.stderr, /for two/);
+
+  const moved = await call("listener_attach", { session: "claude:a", app: "chat", instance: "three" });
+  assert.match(moved.text, /Left chat-one/);
+  const status = JSON.parse((await call("listener_status", { session: "claude:a" })).text);
+  assert.deepEqual(status.credentials[0].subscriptions.map((sub) => [sub.group, sub.app, sub.instance]), [["chat-three", "chat", "three"]]);
+  assert.ok(!(await call("listener_attach", { session: "claude:b", app: "chat", instance: "one" })).error, "the instance a left is free");
+});
+
+test("app add accepts an {instance} placeholder and creates no group up front", async (t) => {
+  const env = await testBroker();
+  t.after(() => env.close());
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
+  const added = await run(["app", "add", "chat", "--channels", "chat/{instance},chat/notes/{instance}/**", "--group", "chat-{instance}", "--exclusive", "--single-instance"], { env: processEnv });
+  assert.equal(added.code, 0, added.stderr);
+  assert.match(added.stdout, /One group per instance \(chat-\{instance\}\)/);
+  const profile = JSON.parse(await readFile(join(env.home, "apps", "chat.json"), "utf8"));
+  assert.equal(profile.single_instance, true);
+  assert.deepEqual(await env.admin.groups(), []);
+  const flat = await run(["app", "add", "flat", "--channels", "flat/**", "--single-instance"], { env: processEnv });
+  assert.match(flat.stderr, /needs \{instance\}/);
+  const groupless = await run(["app", "add", "half", "--channels", "half/{instance}"], { env: processEnv });
+  assert.match(groupless.stderr, /--group needs it too/);
 });

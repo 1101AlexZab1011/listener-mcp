@@ -7,6 +7,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { agentIdentities, attachSession, ensureBroker, formatEvents, identityAllowed, identityForApp, sessionIdentities, waitForSession } from "../agent.mjs";
+import { instanceOf, instanceOfGroup } from "../apps.mjs";
 import { hostOfAgent } from "../hosts/index.mjs";
 
 const HEARTBEAT_MS = 60_000;
@@ -42,29 +43,39 @@ export async function runMcpServer({ cwd = process.cwd(), env = process.env } = 
     annotations: { readOnlyHint: true },
   }, tool(async ({ session: agent }) => {
     const { identities, apps } = await context();
+    // Which app (and instance) a subscription belongs to, so the model can name it.
+    const owner = (group) => {
+      for (const app of apps) {
+        if (app.group === group) return { app: app.name };
+        const instance = instanceOfGroup(app, group);
+        if (instance) return { app: app.name, instance };
+      }
+      return {};
+    };
     const status = {
       broker: identities.length ? await identities[0].client.health() : "no agent credential here; register an app or work in a project",
-      apps: apps.map(({ name, group, channels, exclusive }) => ({ name, group, channels, exclusive: Boolean(exclusive) })),
+      apps: apps.map(({ name, group, channels, exclusive, single_instance }) => ({ name, group, channels, exclusive: Boolean(exclusive), single_instance: Boolean(single_instance) })),
       credentials: await Promise.all(identities.map(async (identity) => ({
         name: identity.name,
         scopes: (await identity.client.whoami()).scopes,
-        ...(agent ? { subscriptions: await identity.client.subscriptions({ agent }) } : {}),
+        ...(agent ? { subscriptions: (await identity.client.subscriptions({ agent })).map((sub) => ({ ...sub, ...owner(sub.group) })) } : {}),
       }))),
     };
     return text(status);
   }));
 
   server.registerTool("listener_attach", {
-    description: "Start listening to app events: attach this session to an app (by its registered name) or to a group of channels. With only session, uses the project's defaults from .listener-mcp.json.",
+    description: "Start listening to app events: attach this session to an app (by its registered name, plus an instance when the app has several) or to a group of channels. With only session, uses the project's defaults from .listener-mcp.json.",
     inputSchema: {
       session,
       app: z.string().optional().describe('A registered app, e.g. "mail" (see listener_status); works from any directory'),
+      instance: z.string().optional().describe("For an app with one group per instance (a chat session, a document): which one"),
       group: z.string().optional().describe("Consumer group to join (members share its events)"),
       channels: z.array(z.string()).optional().describe('Channel patterns, e.g. ["mail/chat/*"]; needed when creating a group'),
       from: z.enum(["now", "earliest"]).optional().describe("For a new group: deliver only new events, or the backlog too"),
       takeover: z.boolean().optional().describe("Replace the agent attached to an exclusive group. Only when the user asked for it"),
     },
-  }, tool(async ({ session: agent, app: appName, group, channels, from, takeover }) => {
+  }, tool(async ({ session: agent, app: appName, instance, group, channels, from, takeover }) => {
     const ctx = await context();
     const mode = hostOfAgent(agent)?.mode ?? "poll";
     let identity = ctx.fallback;
@@ -74,12 +85,22 @@ export async function runMcpServer({ cwd = process.cwd(), env = process.env } = 
       const known = ctx.apps.map((entry) => entry.name);
       throw new Error(`No agent credential in ${cwd}: there is no .listener-mcp.json here or above.${known.length ? ` Pass app (registered: ${known.join(", ")}).` : " Register an app with listener-mcp app add, or run listener-mcp init in the project."}`);
     }
-    const result = await attachSession(identity.client, { agent, project: app ? null : ctx.project, app, group, channels, from, mode, takeover });
+    const result = await attachSession(identity.client, { agent, project: app ? null : ctx.project, app, instance, group, channels, from, mode, takeover });
     sessions.add(agent);
+    // single_instance: the agent leaves its other instances of this app, only once the new attach succeeded.
+    const left = [];
+    if (app?.single_instance) {
+      const target = instanceOf(app, instance).group;
+      for (const held of await holding(agent)) {
+        for (const sub of held.subscriptions) {
+          if (sub.group !== target && instanceOfGroup(app, sub.group)) { await held.client.detach(sub.id); left.push(sub.group); }
+        }
+      }
+    }
     const next = mode === "wake"
       ? "Now end your turn. Events will wake this session as messages; after handling each batch, end the turn again and the listener re-arms."
       : "Now call listener_wait. It returns when events arrive; handle them, then call listener_wait again.";
-    return text(`Attached ${agent} to group ${result.group.name} (${result.group.channels.join(", ")}${result.group.exclusive ? "; exclusive" : ""}); ${result.pending} event(s) waiting.\n${next}`);
+    return text(`Attached ${agent} to group ${result.group.name} (${result.group.channels.join(", ")}${result.group.exclusive ? "; exclusive" : ""}); ${result.pending} event(s) waiting.${left.length ? ` Left ${left.join(", ")}.` : ""}\n${next}`);
   }));
 
   server.registerTool("listener_detach", {

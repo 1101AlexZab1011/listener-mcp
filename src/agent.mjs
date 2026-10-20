@@ -8,7 +8,7 @@ import { openSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { brokerUrl, ensureConfig, files, loadConfig, readCredential } from "./config.mjs";
 import { ListenerClient } from "./client.mjs";
-import { listApps, loadApp } from "./apps.mjs";
+import { instanceOf, listApps, loadApp } from "./apps.mjs";
 import { findProject } from "./project.mjs";
 import { covers, matches } from "./protocol.mjs";
 
@@ -144,11 +144,11 @@ export async function brokerAddress(env = process.env) {
 }
 
 /**
- * Attach `agent` using explicit options, falling back to an app's profile or
- * the project's defaults.
+ * Attach `agent` using explicit options, falling back to an app's profile
+ * (for one of its instances, when it has them) or the project's defaults.
  */
-export async function attachSession(client, { agent, project, app, group, channels, from, mode, takeover }) {
-  const defaults = app ?? project?.config.attach ?? {};
+export async function attachSession(client, { agent, project, app, instance, group, channels, from, mode, takeover }) {
+  const defaults = app ? { ...app, ...instanceOf(app, instance) } : project?.config.attach ?? {};
   const options = {
     agent,
     group: group ?? defaults.group,

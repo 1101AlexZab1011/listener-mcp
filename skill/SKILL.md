@@ -15,7 +15,9 @@ the session context from the listener-mcp session-start hook; pass it as
 
 1. Call `listener_attach` with `session`, and with `app` to reach an app
    registered for this user (`listener_status` lists them; the session context
-   names them too). That works from any directory. With only `session` it uses
+   names them too). That works from any directory. An app with several
+   conversations (chat sessions, documents) also needs `instance`; the app's
+   own skill says how to find it. With only `session` it uses
    the project's defaults from `.listener-mcp.json`; pass `group`/`channels`
    to attach elsewhere. An agent may be attached to several groups at once.
    - If the result says the group is **exclusive** and another agent is
