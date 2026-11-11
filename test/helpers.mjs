@@ -18,7 +18,7 @@ export async function testBroker(limits = {}) {
   };
   return {
     broker, admin, client, env, home,
-    async close() { await broker.close(); await rm(home, { recursive: true, force: true }); },
+    async close() { await broker.close(); await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); },
   };
 }
 

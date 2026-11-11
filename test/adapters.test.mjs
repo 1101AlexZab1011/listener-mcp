@@ -14,6 +14,15 @@ import { ListenerClient } from "../src/client.mjs";
 
 const cli = fileURLToPath(new URL("../bin/listener-mcp.mjs", import.meta.url));
 
+// MCP servers started by a test run in its temp folders. Windows will not remove a folder a
+// process still uses, and cleanups run in the order they were added, so close servers first.
+const clients = new Set();
+async function removeDir(dir) {
+  await Promise.all([...clients].map((client) => client.close().catch(() => {})));
+  clients.clear();
+  await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+}
+
 function run(args, { env, input, cwd }) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [cli, ...args], { env, cwd });
@@ -30,7 +39,7 @@ function run(args, { env, input, cwd }) {
 async function setup(t) {
   const env = await testBroker();
   const project = await mkdtemp(join(tmpdir(), "listener-mcp-project-"));
-  t.after(async () => { await env.close(); await rm(project, { recursive: true, force: true }); });
+  t.after(async () => { await env.close(); await removeDir(project); });
   const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
   const { token } = await env.admin.createToken({ name: "proj-agent", scopes: ["subscribe:app/**", "publish:app/**", "read:app/**"] });
   await saveCredential("proj-agent", token, processEnv);
@@ -79,7 +88,7 @@ test("session-start hook tells the model its agent id", async (t) => {
 test("init wires Claude Code and Codex into a project, idempotently", async (t) => {
   const env = await testBroker();
   const project = await mkdtemp(join(tmpdir(), "listener-mcp-init-"));
-  t.after(async () => { await env.close(); await rm(project, { recursive: true, force: true }); });
+  t.after(async () => { await env.close(); await removeDir(project); });
   const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
   await writeFile(join(project, ".mcp.json"), JSON.stringify({ mcpServers: { other: { command: "x" } } }));
   for (let round = 0; round < 2; round++) {
@@ -106,7 +115,8 @@ test("the MCP server attaches, waits, replies and acks", async (t) => {
   const transport = new StdioClientTransport({ command: process.execPath, args: [cli, "mcp"], env: processEnv, cwd: project, stderr: "pipe" });
   const client = new Client({ name: "test", version: "1.0.0" });
   await client.connect(transport);
-  t.after(() => client.close());
+  clients.add(client);
+  t.after(() => client.close().catch(() => {}));
   const call = async (name, args) => {
     const result = await client.callTool({ name, arguments: args });
     assert.ok(!result.isError, result.content[0].text);
@@ -138,7 +148,8 @@ async function mcpClient(t, { cwd, env }) {
   const transport = new StdioClientTransport({ command: process.execPath, args: [cli, "mcp"], env, cwd, stderr: "pipe" });
   const client = new Client({ name: "test", version: "1.0.0" });
   await client.connect(transport);
-  t.after(() => client.close());
+  clients.add(client);
+  t.after(() => client.close().catch(() => {}));
   return async (name, args) => {
     const result = await client.callTool({ name, arguments: args });
     return { error: Boolean(result.isError), text: result.content[0].text };
@@ -148,7 +159,7 @@ async function mcpClient(t, { cwd, env }) {
 test("a session in any directory attaches to a registered app, and the app takes one agent", async (t) => {
   const env = await testBroker();
   const anywhere = await mkdtemp(join(tmpdir(), "listener-mcp-anywhere-"));
-  t.after(async () => { await env.close(); await rm(anywhere, { recursive: true, force: true }); });
+  t.after(async () => { await env.close(); await removeDir(anywhere); });
   const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
   await registerApp(env, processEnv);
 
@@ -233,7 +244,7 @@ test("app add mints a credential once, keeps an existing one, and sets the group
 test("init --user wires every session through the home directory, and uninstall --user undoes it", async (t) => {
   const env = await testBroker();
   const home = await mkdtemp(join(tmpdir(), "listener-mcp-home-"));
-  t.after(async () => { await env.close(); await rm(home, { recursive: true, force: true }); });
+  t.after(async () => { await env.close(); await removeDir(home); });
   // No claude CLI on PATH: the MCP registration is reported, not written.
   const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url, HOME: home, USERPROFILE: home, PATH: join(home, "bin") };
   const result = await run(["init", "--user", "--command", "listener-mcp"], { env: processEnv });
@@ -254,7 +265,7 @@ test("init --user wires every session through the home directory, and uninstall 
 test("an app with instances: one agent per instance, and single_instance moves an agent", async (t) => {
   const env = await testBroker();
   const anywhere = await mkdtemp(join(tmpdir(), "listener-mcp-instances-"));
-  t.after(async () => { await env.close(); await rm(anywhere, { recursive: true, force: true }); });
+  t.after(async () => { await env.close(); await removeDir(anywhere); });
   const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
   await registerApp(env, processEnv);
   await saveApp({ name: "chat", credential: "demo-agent", group: "chat-{instance}", channels: ["demo/chat/{instance}"], from: "now", exclusive: true, single_instance: true }, processEnv);
