@@ -16,7 +16,9 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { files } from "./config.mjs";
 
-const run = promisify(execFile);
+const execFileAsync = promisify(execFile);
+// Service managers answer quickly; one waiting for input (a prompt) must not hang the caller.
+const run = (file, args) => execFileAsync(file, args, { timeout: 60_000, windowsHide: true });
 const exists = (path) => access(path).then(() => true, () => false);
 
 /**

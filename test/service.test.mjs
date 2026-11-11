@@ -89,6 +89,6 @@ test("a .cmd shim gets its arguments intact", { skip: process.platform !== "win3
   // What npm writes for a CLI: a batch file that hands %* to node.
   await writeFile(join(dir, "echo-args.cmd"), `@"${process.execPath}" -e "console.log(JSON.stringify(process.argv.slice(1)))" -- %*\r\n`);
   const args = ["mcp", "add-json", '{"type":"stdio","command":"cmd","args":["/c","x y"]}', "100%", "a&b|c", "^caret", 'tail\\'];
-  const out = runSync("echo-args", args, { encoding: "utf8", env: { ...process.env, PATH: `${dir};${process.env.PATH}` } });
+  const out = runSync("echo-args", args, { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: `${dir};${process.env.PATH}` } });
   assert.deepEqual(JSON.parse(String(out)), args);
 });
