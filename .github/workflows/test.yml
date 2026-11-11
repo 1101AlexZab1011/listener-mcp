@@ -16,6 +16,8 @@ jobs:
       - run: npm ci
       - run: npm test 2>&1 | tee test-output.txt; exit ${PIPESTATUS[0]}
         shell: bash
+        env:
+          NODE_OPTIONS: --test-reporter=spec
         timeout-minutes: 10
       - if: failure()
         run: node .github/scripts/annotate.mjs test-output.txt

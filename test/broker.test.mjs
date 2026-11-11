@@ -282,14 +282,14 @@ test("a database from before exclusive groups is migrated", async (t) => {
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const dir = await mkdtemp(join(tmpdir(), "listener-mcp-db-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, "broker.db");
   const old = new DatabaseSync(path);
   old.exec("CREATE TABLE groups (name TEXT PRIMARY KEY, patterns TEXT NOT NULL, start_seq INTEGER NOT NULL, durable INTEGER NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL)");
   old.prepare("INSERT INTO groups VALUES ('chat', '[\"mail/chat/*\"]', 0, 1, 'admin', 0)").run();
   old.close();
   const store = new Store(path);
-  t.after(() => store.close());
+  // Close before removing: Windows keeps an open database's files.
+  t.after(async () => { store.close(); await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); });
   assert.equal(store.group("chat")?.exclusive, false);
   store.setGroupExclusive("chat", true);
   assert.equal(store.group("chat")?.exclusive, true);
