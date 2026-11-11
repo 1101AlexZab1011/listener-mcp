@@ -13,7 +13,9 @@
     ".": "./src/index.mjs",
     "./client": "./src/client.mjs",
     "./broker": "./src/broker/index.mjs",
-    "./service": "./src/service.mjs"
+    "./service": "./src/service.mjs",
+    "./command": "./src/command.mjs",
+    "./config": "./src/config.mjs"
   },
   "files": ["bin", "src", "skill", "docs", "assets", "README.md", "LICENSE"],
   "scripts": {

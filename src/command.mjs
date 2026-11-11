@@ -30,15 +30,27 @@ export function whichWindows(name, env = process.env) {
 }
 
 /**
+ * How to start `name` with `args` through spawn or execFile: as given, except
+ * that a Windows .cmd/.bat program is started through cmd.exe.
+ * @param {string} name
+ * @param {string[]} args
+ * @returns {{ file: string, args: string[], options: { windowsVerbatimArguments?: boolean } }}
+ */
+export function commandLine(name, args, env = process.env) {
+  if (process.platform !== "win32") return { file: name, args, options: {} };
+  const file = whichWindows(name, env) ?? name;
+  if (!/\.(cmd|bat)$/i.test(file)) return { file, args, options: {} };
+  const line = [cmdArgument(file, false), ...args.map((arg) => cmdArgument(arg))].join(" ");
+  return { file: env.ComSpec ?? process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], options: { windowsVerbatimArguments: true } };
+}
+
+/**
  * execFileSync that also starts .cmd/.bat programs on Windows.
  * @param {string} name
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [options]
  */
 export function runSync(name, args, options = {}) {
-  if (process.platform !== "win32") return execFileSync(name, args, options);
-  const file = whichWindows(name, options.env ?? process.env) ?? name;
-  if (!/\.(cmd|bat)$/i.test(file)) return execFileSync(file, args, options);
-  const line = [cmdArgument(file, false), ...args.map((arg) => cmdArgument(arg))].join(" ");
-  return execFileSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${line}"`], { ...options, windowsVerbatimArguments: true });
+  const line = commandLine(name, args, options.env ?? process.env);
+  return execFileSync(line.file, line.args, { ...options, ...line.options });
 }
