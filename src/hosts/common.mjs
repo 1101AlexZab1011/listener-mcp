@@ -5,7 +5,8 @@ import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const HOOK_MARKER = "listener-mcp hook";
+// Ours whether called as `listener-mcp hook`, through npx, or as "<node>" "<…>/listener-mcp.mjs" hook.
+const isOurs = (hook) => /listener-mcp(\.mjs)?"?\s+hook\b/.test(String(hook.command ?? ""));
 const skillSource = fileURLToPath(new URL("../../skill/SKILL.md", import.meta.url));
 
 export async function readJsonFile(path, fallback) {
@@ -26,7 +27,7 @@ export async function writeJsonFile(path, value) {
 export function setHook(config, event, handler, matcher) {
   config.hooks ??= {};
   const groups = (config.hooks[event] ?? [])
-    .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((hook) => !String(hook.command ?? "").includes(HOOK_MARKER)) }))
+    .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((hook) => !isOurs(hook)) }))
     .filter((group) => group.hooks.length);
   groups.push({ ...(matcher ? { matcher } : {}), hooks: [handler] });
   config.hooks[event] = groups;
@@ -36,7 +37,7 @@ export function setHook(config, event, handler, matcher) {
 export function removeHooks(config) {
   for (const event of Object.keys(config.hooks ?? {})) {
     config.hooks[event] = config.hooks[event]
-      .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((hook) => !String(hook.command ?? "").includes(HOOK_MARKER)) }))
+      .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((hook) => !isOurs(hook)) }))
       .filter((group) => group.hooks.length);
     if (!config.hooks[event].length) delete config.hooks[event];
   }
