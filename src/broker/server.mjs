@@ -11,6 +11,7 @@
 // Only /v1/health (no data) and /v1/pair (origin-bound, one-shot) skip step 3.
 import { createServer } from "node:http";
 import { files, readAdminToken, writePrivate } from "../config.mjs";
+import { readFileSync } from "node:fs";
 import { errors, PROTOCOL_VERSION, ProtocolError } from "../protocol.mjs";
 import { assertOrigin, generateToken, hashToken, mintToken, requireDelegable, requireScope } from "./auth.mjs";
 import { BlobStore } from "./blobs.mjs";
@@ -18,7 +19,8 @@ import { Bus } from "./bus.mjs";
 import { readJson, Router, send, sendError } from "./http.mjs";
 import { Store } from "./store.mjs";
 
-const VERSION = "0.1.2";
+// From package.json, so a release cannot report an old version.
+const VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 const JSON_LIMIT = 1024 * 1024;
 
 /**
