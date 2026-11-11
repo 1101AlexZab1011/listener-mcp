@@ -19,7 +19,7 @@
   },
   "files": ["bin", "src", "skill", "docs", "assets", "README.md", "LICENSE"],
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.mjs\"",
     "broker": "node bin/listener-mcp.mjs broker"
   },
   "keywords": ["mcp", "agents", "claude-code", "codex", "events", "hooks", "bridge"],
