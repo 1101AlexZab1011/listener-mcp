@@ -57,6 +57,13 @@ export function splitCommand(command) {
   return { command: parts[0], args: parts.slice(1) };
 }
 
+/** How an agent starts the MCP server: on Windows npm installs CLIs as .cmd shims, which only cmd can start. */
+export function serverCommand(command, os = process.platform) {
+  const { command: bin, args } = splitCommand(command);
+  if (os === "win32" && !/\.exe$/i.test(bin)) return { command: "cmd", args: ["/c", bin, ...args] };
+  return { command: bin, args };
+}
+
 /** Context text a session-start hook gives the model. */
 export function sessionContext({ agent, subscriptions, project, apps = [], mode }) {
   const lines = [`listener-mcp: this session's agent id is "${agent}".`];

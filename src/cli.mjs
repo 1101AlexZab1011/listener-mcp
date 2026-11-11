@@ -18,7 +18,8 @@ const HELP = `listener-mcp: let apps reach coding agents.
 Broker
   broker                         run the broker in the foreground
   service install|uninstall|status
-                                 run the broker as a per-user service (systemd/launchd)
+                                 run the broker as a per-user service (systemd, launchd,
+                                 or a logon task on Windows)
   status [pattern]               broker health, groups and who is listening
   doctor                         check the setup of this machine and project
 

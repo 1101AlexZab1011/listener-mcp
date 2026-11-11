@@ -34,7 +34,8 @@ src/
   agent.mjs           shared agent-side logic: credentials, attach, format, wait
   hosts/              one module per agent runtime (claude, codex)
   mcp/server.mjs      the `listener` MCP server
-  service.mjs         systemd / launchd integration
+  service.mjs         per-user services: systemd, launchd, Windows logon tasks
+  command.mjs         run CLIs from PATH, including Windows .cmd shims
   project.mjs         .listener-mcp.json
   apps.mjs            app profiles: <config dir>/apps/<name>.json
   cli.mjs             `listener-mcp` commands

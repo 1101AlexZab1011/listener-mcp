@@ -11,7 +11,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { agentIdentities, attachSession, formatEvents, sessionIdentities, waitForSession } from "../agent.mjs";
-import { installSkill, readJsonFile, removeHooks, sessionContext, setHook, splitCommand, writeJsonFile } from "./common.mjs";
+import { installSkill, readJsonFile, removeHooks, sessionContext, setHook, serverCommand, writeJsonFile } from "./common.mjs";
 
 const HOOK_TIMEOUT_S = 86_400;
 const WAIT_MARGIN_S = 60;
@@ -35,7 +35,7 @@ export const codex = {
     let existing = "";
     try { existing = await readFile(configPath, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
     if (!/^\[mcp_servers\.listener\]/m.test(existing)) {
-      const { command: bin, args } = splitCommand(command);
+      const { command: bin, args } = serverCommand(command);
       const block = [
         "",
         "# listener-mcp: lets apps reach this agent (see .listener-mcp.json)",

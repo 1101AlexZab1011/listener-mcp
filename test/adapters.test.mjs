@@ -235,7 +235,7 @@ test("init --user wires every session through the home directory, and uninstall 
   const home = await mkdtemp(join(tmpdir(), "listener-mcp-home-"));
   t.after(async () => { await env.close(); await rm(home, { recursive: true, force: true }); });
   // No claude CLI on PATH: the MCP registration is reported, not written.
-  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url, HOME: home, PATH: join(home, "bin") };
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url, HOME: home, USERPROFILE: home, PATH: join(home, "bin") };
   const result = await run(["init", "--user", "--command", "listener-mcp"], { env: processEnv });
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /claude mcp add-json --scope user listener/);

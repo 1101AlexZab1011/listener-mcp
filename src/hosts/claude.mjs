@@ -8,9 +8,9 @@
 // it. When the woken turn ends, Stop fires again and the next wait begins.
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { runSync } from "../command.mjs";
 import { agentIdentities, attachSession, formatEvents, sessionIdentities, waitForSession } from "../agent.mjs";
-import { installSkill, readJsonFile, removeHooks, sessionContext, setHook, splitCommand, writeJsonFile } from "./common.mjs";
+import { installSkill, readJsonFile, removeHooks, sessionContext, setHook, serverCommand, writeJsonFile } from "./common.mjs";
 
 // Claude Code's hook runner uses a timer, and timers overflow at ~24.8 days,
 // so the wait stays below that and re-arms on its own when it runs out.
@@ -44,7 +44,7 @@ export const claude = {
     if (!settings.permissions.allow.includes("mcp__listener")) settings.permissions.allow.push("mcp__listener");
     await writeJsonFile(settingsPath, settings);
 
-    const { command: bin, args } = splitCommand(command);
+    const { command: bin, args } = serverCommand(command);
     const server = { type: "stdio", command: bin, args: [...args, "mcp"] };
     let mcpPath;
     if (scope === "user") {
@@ -116,7 +116,7 @@ export const claude = {
   },
 };
 
-const claudeCli = (args) => execFileSync(process.platform === "win32" ? "claude.cmd" : "claude", args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+const claudeCli = (args) => runSync("claude", args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
 
 /** Register the listener server in Claude Code's user scope, replacing an older entry. */
 function registerUserServer(server) {

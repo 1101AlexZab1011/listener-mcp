@@ -58,9 +58,20 @@ npm install -g --allow-git=root github:1101AlexZab1011/listener-mcp
 # no root? install into your home instead (make sure ~/.local/bin is on PATH):
 # npm install -g --allow-git=root --prefix ~/.local github:1101AlexZab1011/listener-mcp
 
-listener-mcp service install     # optional: keep the broker running (systemd / launchd)
+listener-mcp service install     # optional: keep the broker running
 listener-mcp doctor              # check the setup
 ```
+
+`service install` uses whatever the system has for per-user services:
+
+| System  | Service                                  | Broker files                              |
+|---------|------------------------------------------|-------------------------------------------|
+| Linux   | systemd user unit `listener-mcp.service` | `~/.config/listener-mcp`, `~/.local/state/listener-mcp` |
+| macOS   | launchd agent `dev.listener-mcp.broker`  | `~/Library/Application Support/listener-mcp` |
+| Windows | logon task `listener-mcp` (runs hidden)  | `%APPDATA%\listener-mcp`                   |
+
+On Windows, run the commands in PowerShell: the examples quote with `'…'`,
+which cmd.exe does not understand. `npm install -g` needs no `--prefix` there.
 
 `--allow-git=root` is needed from npm 12 on, which refuses git dependencies
 unless you opt in. Older npm versions accept the command without it.

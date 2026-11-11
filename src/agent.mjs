@@ -130,7 +130,7 @@ export async function ensureBroker({ env = process.env } = {}) {
   const { startService } = await import("./service.mjs");
   if (!(await startService().catch(() => false))) {
     const log = openSync(files(env).log, "a", 0o600);
-    spawn(process.execPath, [cliPath, "broker"], { detached: true, stdio: ["ignore", log, log], env }).unref();
+    spawn(process.execPath, [cliPath, "broker"], { detached: true, windowsHide: true, stdio: ["ignore", log, log], env }).unref();
   }
   for (let attempt = 0; attempt < 50; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 100));
