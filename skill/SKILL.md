@@ -6,7 +6,7 @@ description: Connect this agent session to apps through listener-mcp so apps can
 # listener-mcp
 
 listener-mcp is the return path from apps to this agent: apps publish events
-on channels (`mail/chat/default`, `crm/lead/new`, …) and the `listener` MCP
+on channels (`mail/chat/default`, `crm/lead/new`, …) and the `agent-chat` MCP
 server delivers them here. Your agent id (e.g. `claude:…` or `codex:…`) is in
 the session context from the listener-mcp session-start hook; pass it as
 `session` to every tool.

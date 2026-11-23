@@ -15,7 +15,7 @@ It's app-agnostic, runs locally, and works with any number of apps and agent
 sessions at once.
 
 <p align="center">
-  <img src="assets/architecture.svg" alt="Apps publish events to a local broker; the broker wakes attached agent sessions; agents reply and acknowledge through the listener MCP server." width="100%">
+  <img src="assets/architecture.svg" alt="Apps publish events to a local broker; the broker wakes attached agent sessions; agents reply and acknowledge through the agent-chat MCP server." width="100%">
 </p>
 
 ## How it works
@@ -26,7 +26,7 @@ sessions at once.
   `crm/lead/new`, using the JS client or plain HTTP. They read replies the same
   way.
 - **Agent sessions** attach to **groups** of channel patterns through the
-  `listener` MCP server. Hooks in the agent runtime deliver events to them.
+  `agent-chat` MCP server. Hooks in the agent runtime deliver events to them.
 - In **Claude Code**, the session is not blocked while it listens. An
   `asyncRewake` Stop hook waits on the broker *after* the turn has ended, so
   you can keep chatting with the agent. When an event arrives, the hook wakes
@@ -114,8 +114,13 @@ listener-mcp app add myapp --channels 'myapp/**' --exclusive
 ```
 
 - `init --user` puts the hooks and the skill in `~/.claude` (Codex:
-  `~/.codex`, `~/.agents/skills`) and registers the `listener` MCP server in
-  Claude Code's user scope.
+  `~/.codex`, `~/.agents/skills`) and registers the `agent-chat` MCP server in
+  Claude Code's user scope. An installation from before the server was called
+  `agent-chat` is migrated by running `init` again: its `listener` entry (in
+  `.mcp.json`, Claude Code's user scope or Codex's `config.toml`) is renamed,
+  `mcp__listener…` permission rules become `mcp__agent-chat…`, and where both
+  names are present the old one is dropped. The tools keep their `listener_*`
+  names.
 - `app add` mints the agent credential `myapp-agent` unless it already exists,
   creates the durable group (named after the app unless you pass `--group`),
   and writes the profile to `apps/myapp.json` in the config directory.

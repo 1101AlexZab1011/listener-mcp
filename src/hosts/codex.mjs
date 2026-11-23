@@ -7,11 +7,11 @@
 // prompt. The session is busy while it listens. Where hooks do not run (the
 // IDE extension, at the time of writing), the listener_wait MCP tool does the
 // same job from inside the turn.
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { agentIdentities, attachSession, formatEvents, sessionIdentities, waitForSession } from "../agent.mjs";
-import { installSkill, readJsonFile, removeHooks, sessionContext, setHook, serverCommand, writeJsonFile } from "./common.mjs";
+import { SERVER_NAME, installSkill, readJsonFile, removeHooks, renameCodexTables, sessionContext, setHook, serverCommand, writeJsonFile } from "./common.mjs";
 
 const HOOK_TIMEOUT_S = 86_400;
 const WAIT_MARGIN_S = 60;
@@ -34,12 +34,15 @@ export const codex = {
     const configPath = join(root, ".codex", "config.toml");
     let existing = "";
     try { existing = await readFile(configPath, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
-    if (!/^\[mcp_servers\.listener\]/m.test(existing)) {
+    // An older install's [mcp_servers.listener] is renamed (or dropped when agent-chat is there too).
+    const migrated = renameCodexTables(existing);
+    if (migrated.changed) { existing = migrated.text; await writeFile(configPath, existing); }
+    if (!existing.split("\n").some((line) => line.trim() === `[mcp_servers.${SERVER_NAME}]`)) {
       const { command: bin, args } = serverCommand(command);
       const block = [
         "",
         "# listener-mcp: lets apps reach this agent (see .listener-mcp.json)",
-        "[mcp_servers.listener]",
+        `[mcp_servers.${SERVER_NAME}]`,
         `command = ${toml(bin)}`,
         `args = [${[...args, "mcp"].map(toml).join(", ")}]`,
         // listener_wait blocks until an app event arrives.

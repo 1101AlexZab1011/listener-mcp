@@ -10,7 +10,10 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { runSync } from "../command.mjs";
 import { agentIdentities, attachSession, formatEvents, sessionIdentities, waitForSession } from "../agent.mjs";
-import { installSkill, readJsonFile, removeHooks, sessionContext, setHook, serverCommand, writeJsonFile } from "./common.mjs";
+import { RETIRED_SERVER_NAME, SERVER_NAME, installSkill, readJsonFile, removeHooks, renamePermissionRules, renameServerEntry, sessionContext, setHook, serverCommand, writeJsonFile } from "./common.mjs";
+
+const RULE = `mcp__${SERVER_NAME}`;
+const RETIRED_RULE = `mcp__${RETIRED_SERVER_NAME}`;
 
 // Claude Code's hook runner uses a timer, and timers overflow at ~24.8 days,
 // so the wait stays below that and re-arms on its own when it runs out.
@@ -41,7 +44,8 @@ export const claude = {
     });
     settings.permissions ??= {};
     settings.permissions.allow ??= [];
-    if (!settings.permissions.allow.includes("mcp__listener")) settings.permissions.allow.push("mcp__listener");
+    renamePermissionRules(settings); // mcp__listener… from an older install
+    if (!settings.permissions.allow.includes(RULE)) settings.permissions.allow.push(RULE);
     await writeJsonFile(settingsPath, settings);
 
     const { command: bin, args } = serverCommand(command);
@@ -52,8 +56,9 @@ export const claude = {
     } else {
       mcpPath = join(root, ".mcp.json");
       const mcp = await readJsonFile(mcpPath, {});
+      renameServerEntry(mcp); // an older install's "listener" entry keeps its place under the new name
       mcp.mcpServers ??= {};
-      mcp.mcpServers.listener = server;
+      mcp.mcpServers[SERVER_NAME] = server;
       await writeJsonFile(mcpPath, mcp);
     }
 
@@ -66,16 +71,20 @@ export const claude = {
     const settings = await readJsonFile(settingsPath, null);
     if (settings) {
       removeHooks(settings);
-      if (settings.permissions?.allow) settings.permissions.allow = settings.permissions.allow.filter((rule) => rule !== "mcp__listener");
+      if (settings.permissions?.allow) settings.permissions.allow = settings.permissions.allow.filter((rule) => rule !== RULE && rule !== RETIRED_RULE);
       await writeJsonFile(settingsPath, settings);
     }
     if (scope === "user") {
-      try { claudeCli(["mcp", "remove", "--scope", "user", "listener"]); } catch { /* not registered */ }
+      for (const name of [SERVER_NAME, RETIRED_SERVER_NAME]) { try { claudeCli(["mcp", "remove", "--scope", "user", name]); } catch { /* not registered */ } }
       return;
     }
     const mcpPath = join(root, ".mcp.json");
     const mcp = await readJsonFile(mcpPath, null);
-    if (mcp?.mcpServers?.listener) { delete mcp.mcpServers.listener; await writeJsonFile(mcpPath, mcp); }
+    if (mcp?.mcpServers && (SERVER_NAME in mcp.mcpServers || RETIRED_SERVER_NAME in mcp.mcpServers)) {
+      delete mcp.mcpServers[SERVER_NAME];
+      delete mcp.mcpServers[RETIRED_SERVER_NAME];
+      await writeJsonFile(mcpPath, mcp);
+    }
   },
 
   hooks: {
@@ -118,15 +127,18 @@ export const claude = {
 
 const claudeCli = (args) => runSync("claude", args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
 
-/** Register the listener server in Claude Code's user scope, replacing an older entry. */
+/**
+ * Register the server in Claude Code's user scope as agent-chat, replacing an older entry under
+ * either name: the retired "listener" goes, so a session does not start the server twice.
+ */
 function registerUserServer(server) {
   const json = JSON.stringify(server);
-  try { claudeCli(["mcp", "remove", "--scope", "user", "listener"]); } catch { /* not registered yet */ }
+  for (const name of [RETIRED_SERVER_NAME, SERVER_NAME]) { try { claudeCli(["mcp", "remove", "--scope", "user", name]); } catch { /* not registered */ } }
   try {
-    claudeCli(["mcp", "add-json", "--scope", "user", "listener", json]);
-    return "Claude Code user MCP config (claude mcp add-json --scope user listener)";
+    claudeCli(["mcp", "add-json", "--scope", "user", SERVER_NAME, json]);
+    return `Claude Code user MCP config (claude mcp add-json --scope user ${SERVER_NAME})`;
   } catch (error) {
-    process.stderr.write(`warning: could not register the MCP server with the claude CLI (${error.message.split("\n")[0]}). Run:\n  claude mcp add-json --scope user listener '${json}'\n`);
+    process.stderr.write(`warning: could not register the MCP server with the claude CLI (${error.message.split("\n")[0]}). Run:\n  claude mcp remove --scope user ${RETIRED_SERVER_NAME}\n  claude mcp add-json --scope user ${SERVER_NAME} '${json}'\n`);
     return "Claude Code user MCP config: not written, see the warning above";
   }
 }

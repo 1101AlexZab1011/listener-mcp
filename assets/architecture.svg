@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" width="960" height="640" role="img" aria-labelledby="t d">
   <title id="t">listener-mcp architecture</title>
-  <desc id="d">Apps publish events to a local broker; the broker wakes or answers the long poll of attached agent sessions; agents reply and acknowledge through the listener MCP server.</desc>
+  <desc id="d">Apps publish events to a local broker; the broker wakes or answers the long poll of attached agent sessions; agents reply and acknowledge through the agent-chat MCP server.</desc>
   <style>
     text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     .h { font-size: 15px; font-weight: 650; }

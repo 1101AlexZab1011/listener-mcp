@@ -52,6 +52,68 @@ export async function installSkill(directory) {
   return target;
 }
 
+// The name agent runtimes know the MCP server by: "agent-chat", what it is for. Installations made
+// before carry the retired "listener"; init renames their entry and permission rules in place, and
+// where both names are present drops the old one, so a session never starts the server twice.
+// The program, its tools (listener_*) and its skill keep their names.
+export const SERVER_NAME = "agent-chat";
+export const RETIRED_SERVER_NAME = "listener";
+
+const RETIRED_RULE = new RegExp(`^mcp__${RETIRED_SERVER_NAME}(?=$|__)`);
+
+/**
+ * Rename Claude Code permission rules for the retired server ("mcp__listener",
+ * "mcp__listener__listener_wait") to the current one, in every list, without
+ * repeating a rule already there. Returns whether anything changed.
+ */
+export function renamePermissionRules(settings) {
+  let changed = false;
+  for (const list of ["allow", "ask", "deny"]) {
+    const rules = settings.permissions?.[list];
+    if (!Array.isArray(rules)) continue;
+    const renamed = [];
+    for (const rule of rules) {
+      const next = typeof rule === "string" ? rule.replace(RETIRED_RULE, `mcp__${SERVER_NAME}`) : rule;
+      if (next !== rule) changed = true;
+      if (!renamed.includes(next)) renamed.push(next); else changed = true;
+    }
+    settings.permissions[list] = renamed;
+  }
+  return changed;
+}
+
+/**
+ * An `mcpServers` object with the retired entry renamed in place (its position kept), or dropped
+ * when the current name is already there. Returns whether anything changed.
+ */
+export function renameServerEntry(container) {
+  const servers = container?.mcpServers;
+  if (!servers || !(RETIRED_SERVER_NAME in servers)) return false;
+  if (SERVER_NAME in servers) { delete servers[RETIRED_SERVER_NAME]; return true; }
+  container.mcpServers = Object.fromEntries(Object.entries(servers).map(([name, value]) => [name === RETIRED_SERVER_NAME ? SERVER_NAME : name, value]));
+  return true;
+}
+
+/**
+ * Codex's config.toml with the retired server's tables ([mcp_servers.listener] and its subtables)
+ * renamed, or removed when the current name already has a table.
+ */
+export function renameCodexTables(text) {
+  const head = (name) => new RegExp(`^\\[mcp_servers\\.${name.replace(/-/g, "\\-")}(\\.[^\\]]+)?\\]\\s*$`);
+  const lines = text.split("\n");
+  if (!lines.some((line) => head(RETIRED_SERVER_NAME).test(line))) return { text, changed: false };
+  if (!lines.some((line) => head(SERVER_NAME).test(line))) {
+    return { text: lines.map((line) => (head(RETIRED_SERVER_NAME).test(line) ? line.replace(`[mcp_servers.${RETIRED_SERVER_NAME}`, `[mcp_servers.${SERVER_NAME}`) : line)).join("\n"), changed: true };
+  }
+  const kept = [];
+  let dropping = false;
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) dropping = head(RETIRED_SERVER_NAME).test(line);
+    if (!dropping) kept.push(line);
+  }
+  return { text: kept.join("\n"), changed: true };
+}
+
 /** Split a configured command like "npx --no-install listener-mcp" for MCP configs. */
 export function splitCommand(command) {
   const parts = [...command.trim().matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)].map((match) => (match[1] != null ? JSON.parse(`"${match[1]}"`) : match[2]));

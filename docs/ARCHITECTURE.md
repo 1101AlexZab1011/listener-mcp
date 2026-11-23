@@ -33,7 +33,7 @@ src/
     blobs.mjs         file storage for attachments
   agent.mjs           shared agent-side logic: credentials, attach, format, wait
   hosts/              one module per agent runtime (claude, codex)
-  mcp/server.mjs      the `listener` MCP server
+  mcp/server.mjs      the `agent-chat` MCP server
   service.mjs         per-user services: systemd, launchd, Windows logon tasks
   command.mjs         run CLIs from PATH, including Windows .cmd shims
   project.mjs         .listener-mcp.json

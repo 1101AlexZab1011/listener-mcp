@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,15 +99,58 @@ test("init wires Claude Code and Codex into a project, idempotently", async (t) 
   assert.equal(settings.hooks.Stop.length, 1, "no duplicate hooks after a second init");
   assert.equal(settings.hooks.Stop[0].hooks[0].asyncRewake, true);
   const mcp = JSON.parse(await readFile(join(project, ".mcp.json"), "utf8"));
-  assert.ok(mcp.mcpServers.other && mcp.mcpServers.listener, "existing servers are kept");
+  assert.ok(mcp.mcpServers.other && mcp.mcpServers["agent-chat"], "existing servers are kept");
   const codexToml = await readFile(join(project, ".codex", "config.toml"), "utf8");
-  assert.equal(codexToml.match(/\[mcp_servers\.listener\]/g).length, 1);
+  assert.equal(codexToml.match(/\[mcp_servers\.agent-chat\]/g).length, 1);
   const codexHooks = JSON.parse(await readFile(join(project, ".codex", "hooks.json"), "utf8"));
   assert.ok(codexHooks.hooks.Stop);
   await readFile(join(project, ".claude", "skills", "listener", "SKILL.md"));
   await readFile(join(project, ".agents", "skills", "listener", "SKILL.md"));
   const groups = await env.admin.groups();
   assert.deepEqual(groups.map((group) => group.name), ["demo"]);
+});
+
+test("init renames an older install's listener entry and permission rules to agent-chat, without duplicates", async (t) => {
+  const env = await testBroker();
+  const project = await mkdtemp(join(tmpdir(), "listener-mcp-rename-"));
+  t.after(async () => { await env.close(); await removeDir(project); });
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url };
+  const old = { type: "stdio", command: "listener-mcp", args: ["mcp"] };
+  await writeFile(join(project, ".mcp.json"), JSON.stringify({ mcpServers: { first: { command: "a" }, listener: old, last: { command: "z" } } }));
+  await mkdir(join(project, ".claude"), { recursive: true });
+  await writeFile(join(project, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["Bash(git status)", "mcp__listener", "mcp__listener__listener_wait", "mcp__listenerish"], deny: ["mcp__listener__listener_publish"] } }));
+  await mkdir(join(project, ".codex"), { recursive: true });
+  await writeFile(join(project, ".codex", "config.toml"), ['model = "x"', "", "[mcp_servers.listener]", 'command = "listener-mcp"', 'args = ["mcp"]', "", "[mcp_servers.listener.env]", 'A = "1"', "", "[mcp_servers.other]", 'command = "o"', ""].join("\n"));
+  for (let round = 0; round < 2; round++) {
+    const result = await run(["init", "--channels", "demo/**", "--group", "demo", "--credential", "demo-agent"], { env: processEnv, cwd: project });
+    assert.equal(result.code, 0, result.stderr);
+  }
+  const mcp = JSON.parse(await readFile(join(project, ".mcp.json"), "utf8"));
+  assert.deepEqual(Object.keys(mcp.mcpServers), ["first", "agent-chat", "last"], "renamed in place, no listener left");
+  const settings = JSON.parse(await readFile(join(project, ".claude", "settings.json"), "utf8"));
+  assert.deepEqual(settings.permissions.allow, ["Bash(git status)", "mcp__agent-chat", "mcp__agent-chat__listener_wait", "mcp__listenerish"]);
+  assert.deepEqual(settings.permissions.deny, ["mcp__agent-chat__listener_publish"]);
+  const toml = await readFile(join(project, ".codex", "config.toml"), "utf8");
+  assert.doesNotMatch(toml, /mcp_servers\.listener\b/);
+  assert.equal(toml.match(/^\[mcp_servers\.agent-chat\]$/gm).length, 1);
+  assert.match(toml, /\[mcp_servers\.agent-chat\.env\]\nA = "1"/);
+  assert.match(toml, /\[mcp_servers\.other\]/);
+
+  // Both names present (a half-migrated file): the old one is dropped, the current one kept.
+  await writeFile(join(project, ".mcp.json"), JSON.stringify({ mcpServers: { listener: old, "agent-chat": old } }));
+  await writeFile(join(project, ".codex", "config.toml"), ["[mcp_servers.agent-chat]", 'command = "new"', "", "[mcp_servers.listener]", 'command = "old"', "", "[other]", "b = 2", ""].join("\n"));
+  const again = await run(["init", "--channels", "demo/**", "--group", "demo", "--credential", "demo-agent"], { env: processEnv, cwd: project });
+  assert.equal(again.code, 0, again.stderr);
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(join(project, ".mcp.json"), "utf8")).mcpServers), ["agent-chat"]);
+  const both = await readFile(join(project, ".codex", "config.toml"), "utf8");
+  assert.doesNotMatch(both, /listener\]|command = "old"/);
+  assert.match(both, /\[mcp_servers\.agent-chat\]\ncommand = "new"/);
+  assert.match(both, /\[other\]\nb = 2/);
+
+  const removed = await run(["uninstall"], { env: processEnv, cwd: project });
+  assert.equal(removed.code, 0, removed.stderr);
+  assert.deepEqual(JSON.parse(await readFile(join(project, ".mcp.json"), "utf8")).mcpServers, {});
+  assert.ok(!JSON.parse(await readFile(join(project, ".claude", "settings.json"), "utf8")).permissions.allow.includes("mcp__agent-chat"));
 });
 
 test("the MCP server attaches, waits, replies and acks", async (t) => {
@@ -249,17 +292,42 @@ test("init --user wires every session through the home directory, and uninstall 
   const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url, HOME: home, USERPROFILE: home, PATH: join(home, "bin") };
   const result = await run(["init", "--user", "--command", "listener-mcp"], { env: processEnv });
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stderr, /claude mcp add-json --scope user listener/);
+  assert.match(result.stderr, /claude mcp add-json --scope user agent-chat/);
   const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
   assert.equal(settings.hooks.Stop[0].hooks[0].command, "listener-mcp hook stop --host claude --budget 1999940");
-  assert.ok(settings.permissions.allow.includes("mcp__listener"));
+  assert.ok(settings.permissions.allow.includes("mcp__agent-chat"));
   await readFile(join(home, ".claude", "skills", "listener", "SKILL.md"));
-  assert.match(await readFile(join(home, ".codex", "config.toml"), "utf8"), /\[mcp_servers\.listener\]/);
+  assert.match(await readFile(join(home, ".codex", "config.toml"), "utf8"), /\[mcp_servers\.agent-chat\]/);
   await readFile(join(home, ".agents", "skills", "listener", "SKILL.md"));
 
   const removed = await run(["uninstall", "--user"], { env: processEnv });
   assert.equal(removed.code, 0, removed.stderr);
   assert.equal(JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8")).hooks, undefined);
+});
+
+test("init --user on an older install: the listener registration is replaced by agent-chat and its rule renamed", async (t) => {
+  const env = await testBroker();
+  const home = await mkdtemp(join(tmpdir(), "listener-mcp-home-"));
+  t.after(async () => { await env.close(); await removeDir(home); });
+  // A stand-in claude CLI that records what it is asked to do.
+  const bin = join(home, "bin");
+  await mkdir(bin, { recursive: true });
+  const log = join(bin, "claude.log");
+  if (process.platform === "win32") await writeFile(join(bin, "claude.cmd"), '@echo %*>>"%~dp0claude.log"\r\n');
+  else { await writeFile(join(bin, "claude"), '#!/bin/sh\necho "$@" >> "$(dirname "$0")/claude.log"\n'); await chmod(join(bin, "claude"), 0o755); }
+  await mkdir(join(home, ".claude"), { recursive: true });
+  await writeFile(join(home, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["mcp__listener", "mcp__elwood"] } }));
+  const processEnv = { ...env.env, LISTENER_MCP_URL: env.broker.url, HOME: home, USERPROFILE: home, PATH: bin };
+  const result = await run(["init", "--user", "--command", "listener-mcp"], { env: processEnv });
+  assert.equal(result.code, 0, result.stderr);
+  const calls = (await readFile(log, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => line.replace(/"/g, ""));
+  assert.deepEqual(calls.map((line) => line.split(" ").slice(0, 5).join(" ")), [
+    "mcp remove --scope user listener",
+    "mcp remove --scope user agent-chat",
+    "mcp add-json --scope user agent-chat",
+  ]);
+  const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
+  assert.deepEqual(settings.permissions.allow, ["mcp__agent-chat", "mcp__elwood"]);
 });
 
 test("an app with instances: one agent per instance, and single_instance moves an agent", async (t) => {
