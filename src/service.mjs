@@ -5,9 +5,12 @@
 // listener-mcp use the same code for their own services (`listener-mcp/service`).
 //
 // Windows has no per-user service manager, so the logon task runs a hidden
-// PowerShell that keeps the program running: it restarts it after a failure,
+// PowerShell that keeps the program running: it restarts it after any exit,
 // appends its output to the log, and records its own pid so stop() can end the
-// whole process tree.
+// whole process tree. The keeper ignores Ctrl+C and gives the program a hidden
+// console of its own: sharing one console, a single Ctrl+C on it ended the
+// program (STATUS_CONTROL_C_EXIT, 0xC000013A, or exit 0 from the broker's SIGINT
+// handler) and the keeper together, and nothing started either again.
 import { execFile } from "node:child_process";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, platform, tmpdir } from "node:os";
@@ -86,6 +89,12 @@ const cmdQuote = (/** @type {unknown} */ arg) => `"${String(arg).replace(/"/g, '
 
 /**
  * The PowerShell that the logon task runs (hidden): keep the program running, log its output.
+ *  - The keeper ignores Ctrl+C (SetConsoleCtrlHandler(NULL, TRUE)), so a console control event cannot
+ *    end it; the flag is inherited, so the program ignores it too unless it installs a handler.
+ *  - The program gets a hidden console of its own (no -NoNewWindow), so a Ctrl+C that reaches its
+ *    console does not reach the keeper's, nor the other way round.
+ *  - Any exit is followed by a restart, 0 and 0xC000013A included: the service is stopped by stop(),
+ *    which ends the keeper's process tree.
  * @param {ServiceSpec} spec
  * @param {string} pidFile
  */
@@ -93,13 +102,14 @@ export function windowsScript(spec, pidFile) {
   const line = spec.command.map(cmdQuote).join(" ") + (spec.log ? ` >> ${cmdQuote(spec.log)} 2>&1` : "");
   return [
     "$ErrorActionPreference = 'Continue'",
+    "Add-Type -Namespace Keeper -Name Console -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern bool SetConsoleCtrlHandler(System.IntPtr handler, bool add);'",
+    "[Keeper.Console]::SetConsoleCtrlHandler([System.IntPtr]::Zero, $true) | Out-Null",
     `Set-Content -LiteralPath ${psQuote(pidFile)} -Value $PID -Encoding ascii`,
     ...(spec.cwd ? [`Set-Location -LiteralPath ${psQuote(spec.cwd)}`] : []),
     ...Object.entries(spec.env ?? {}).map(([key, value]) => `$env:${key} = ${psQuote(value)}`),
     "while ($true) {",
     // cmd does the redirection (PowerShell 5 would re-encode the output); /s keeps the quoting as written.
-    `  $p = Start-Process -FilePath 'cmd.exe' -ArgumentList ${psQuote(`/d /s /c "${line}"`)} -NoNewWindow -Wait -PassThru`,
-    "  if ($p.ExitCode -eq 0) { break }",
+    `  $p = Start-Process -FilePath 'cmd.exe' -ArgumentList ${psQuote(`/d /s /c "${line}"`)} -WindowStyle Hidden -Wait -PassThru`,
     `  Start-Sleep -Seconds ${Math.max(1, spec.restartSec ?? 2)}`,
     "}",
   ].join("\n");

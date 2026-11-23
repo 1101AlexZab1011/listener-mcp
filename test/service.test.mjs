@@ -36,11 +36,14 @@ test("a launchd agent escapes XML and brings PATH along", () => {
   assert.match(plist, /<key>KeepAlive<\/key><dict><key>SuccessfulExit<\/key><false\/><\/dict>/);
 });
 
-test("the Windows keeper restarts on failure, logs through cmd and records its pid", () => {
+test("the Windows keeper ignores Ctrl+C, restarts after any exit, logs through cmd and records its pid", () => {
   const script = windowsScript(spec, "C:\\Users\\a\\AppData\\Local\\demo.pid");
   assert.match(script, /Set-Content -LiteralPath 'C:\\Users\\a\\AppData\\Local\\demo\.pid' -Value \$PID/);
   assert.match(script, /'\/d \/s \/c ""\/opt\/node js\/node" "\/srv\/app\.mjs" "serve" >> "\/var\/log\/it''s\.log" 2>&1"'/);
-  assert.match(script, /if \(\$p\.ExitCode -eq 0\) \{ break \}/);
+  assert.match(script, /SetConsoleCtrlHandler\(\[System\.IntPtr\]::Zero, \$true\)/);
+  assert.match(script, /-WindowStyle Hidden -Wait -PassThru/);
+  assert.doesNotMatch(script, /-NoNewWindow/, "the program does not share the keeper's console");
+  assert.doesNotMatch(script, /break/, "no exit code stops it, 0 and 0xC000013A included");
   assert.match(script, /\$env:MODE = 'a b'/);
   const task = windowsTask(spec, { user: "PC\\a", pidFile: "x.pid" });
   assert.match(task, /<LogonType>InteractiveToken<\/LogonType>/);
