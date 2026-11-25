@@ -21,7 +21,7 @@ The JS client in `src/client.mjs` is a thin wrapper around this API.
 | 401    | `unauthorized`                               | Missing or unknown token                                 |
 | 403    | `forbidden`                                  | Scope, Host or Origin check failed                       |
 | 404    | `not_found`                                  | No such resource, or not visible to this token           |
-| 409    | `superseded`, `detached`, `group_mismatch`, `group_occupied` | The wait was replaced or ended; the group has other channels; an exclusive group already has an agent |
+| 409    | `superseded`, `detached`, `group_mismatch`, `group_occupied` | The wait was replaced or ended; the group has other channels (not a superset of its own); an exclusive group already has an agent |
 | 413    | `too_large`                                  | The body exceeds a limit                                 |
 
 ## Names
@@ -119,8 +119,12 @@ single agent, such as a chat panel.
 { "name": "mail-chat", "channels": ["mail/chat/*"], "from": "earliest", "durable": true, "exclusive": false }
 ```
 
-- Idempotent: creating a group again with the same channels returns it, while
-  different channels give `409 group_mismatch`. `exclusive` is policy rather
+- Idempotent: creating a group again with the same channels returns it. A set
+  that keeps every channel the group has and adds more widens it: each added
+  pattern needs `subscribe` on the caller's token, as for a new group, and the
+  group hears the added channels from now on (no backfill). Attaching with such
+  a set does the same. A narrower or different set gives `409 group_mismatch`.
+  `exclusive` is policy rather
   than routing, so passing it for an existing group updates it; omitting it
   keeps the current value.
 - `from: "earliest"` backfills retained events.

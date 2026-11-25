@@ -275,6 +275,41 @@ test("exclusive is group policy: creating the group again updates it", async (t)
   await agent.attach({ agent: "b", group: "chat" });
 });
 
+test("a group asked for with more channels takes them from now; a narrower or unscoped set is refused", async (t) => {
+  const env = await testBroker();
+  t.after(() => env.close());
+  const agent = await env.client("agent", agentScopes);
+  const { subscription } = await agent.attach({ agent: "claude:x", group: "mail-chat-x", channels: ["mail/chat/x"], from: "earliest" });
+  await env.admin.publish({ channel: "mail/chat/x/earlier", data: { text: "before the group widened" } });
+
+  // Attaching with every old pattern plus a new one widens the group, with no backfill.
+  const widened = await agent.attach({ agent: "claude:x", group: "mail-chat-x", channels: ["mail/chat/x", "mail/chat/x/**"] });
+  const [group] = (await env.admin.groups()).filter((item) => item.name === "mail-chat-x");
+  assert.deepEqual(group.channels, ["mail/chat/x", "mail/chat/x/**"]);
+  await env.admin.publish({ channel: "mail/chat/x/later", data: { text: "a second chat" } });
+  await env.admin.publish({ channel: "mail/chat/x", data: { text: "the first chat" } });
+  const { events } = await agent.next(widened.subscription.id, { waitMs: 1000 });
+  assert.deepEqual(events.map((event) => event.channel), ["mail/chat/x/later", "mail/chat/x"], "no backfill of mail/chat/x/earlier");
+  assert.equal(subscription.id, widened.subscription.id, "the same subscription goes on");
+
+  // Creating it again the same way widens too, and asking with the same set changes nothing.
+  await env.admin.createGroup({ name: "mail-chat-y", channels: ["mail/chat/y"] });
+  assert.deepEqual((await env.admin.createGroup({ name: "mail-chat-y", channels: ["mail/chat/y/**", "mail/chat/y"] })).channels, ["mail/chat/y", "mail/chat/y/**"]);
+  assert.deepEqual((await env.admin.createGroup({ name: "mail-chat-y", channels: ["mail/chat/y", "mail/chat/y/**"] })).channels, ["mail/chat/y", "mail/chat/y/**"]);
+
+  // A narrower or a different set is still a mismatch.
+  await assert.rejects(agent.attach({ agent: "claude:x", group: "mail-chat-x", channels: ["mail/chat/x/**"] }), { code: "group_mismatch" });
+  await assert.rejects(env.admin.createGroup({ name: "mail-chat-y", channels: ["mail/chat/y", "mail/chat/z"] }), { code: "group_mismatch" });
+
+  // An added pattern the caller may not subscribe to is refused, and the group stays as it was.
+  const narrow = await env.client("narrow", ["subscribe:mail/chat/n", "subscribe:mail/chat/n/**", "publish:mail/**", "read:mail/**"]);
+  await narrow.attach({ agent: "claude:n", group: "mail-chat-n", channels: ["mail/chat/n"] });
+  await assert.rejects(narrow.attach({ agent: "claude:n", group: "mail-chat-n", channels: ["mail/chat/n", "mail/other/**"] }), { status: 403 });
+  assert.deepEqual((await env.admin.groups()).find((item) => item.name === "mail-chat-n").channels, ["mail/chat/n"]);
+  await narrow.attach({ agent: "claude:n", group: "mail-chat-n", channels: ["mail/chat/n", "mail/chat/n/**"] });
+  assert.deepEqual((await env.admin.groups()).find((item) => item.name === "mail-chat-n").channels, ["mail/chat/n", "mail/chat/n/**"]);
+});
+
 test("a database from before exclusive groups is migrated", async (t) => {
   const { DatabaseSync } = await import("node:sqlite");
   const { Store } = await import("../src/broker/store.mjs");
