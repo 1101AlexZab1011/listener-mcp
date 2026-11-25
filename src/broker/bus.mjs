@@ -186,7 +186,7 @@ export class Bus {
     if (exclusive != null && typeof exclusive !== "boolean") throw errors.badRequest("exclusive must be a boolean");
     const existing = this.store.group(name);
     if (existing) {
-      if (!sameSet(existing.patterns, channels)) throw errors.conflict("group_mismatch", `Group ${name} already exists with channels ${existing.patterns.join(", ")}`);
+      if (!sameSet(existing.patterns, channels)) this.#widen(principal, existing, channels, `Group ${name} already exists with channels ${existing.patterns.join(", ")}`);
       if (exclusive != null && exclusive !== existing.exclusive) this.store.setGroupExclusive(name, exclusive);
       return groupWire(/** @type {any} */ (this.store.group(name)));
     }
@@ -197,6 +197,20 @@ export class Bus {
       if (from === "earliest") this.#backfill(name, channels, now);
     });
     return groupWire(/** @type {any} */ (this.store.group(name)));
+  }
+
+  /**
+   * An existing group asked for with more channels than it has: it takes them when the new set keeps every
+   * pattern it already has and the caller may subscribe to each added one, as for a new group. Events
+   * already published are not backfilled: the group hears the added channels from now on. A narrower or
+   * different set is refused with group_mismatch, as before.
+   */
+  #widen(principal, existing, channels, mismatch) {
+    const wanted = [...new Set(channels)];
+    if (!existing.patterns.every((pattern) => wanted.includes(pattern))) throw errors.conflict("group_mismatch", mismatch);
+    const added = wanted.filter((pattern) => !existing.patterns.includes(pattern));
+    added.forEach((pattern) => { assertPattern(pattern); requirePattern(principal, "subscribe", pattern); });
+    if (added.length) this.store.setGroupPatterns(existing.name, [...existing.patterns, ...added]);
   }
 
   #backfill(group, patterns, now) {
@@ -249,7 +263,10 @@ export class Bus {
       this.createGroup(principal, { name, channels, from, durable: durable ?? Boolean(group), exclusive });
       existing = /** @type {any} */ (this.store.group(name));
     } else {
-      if (channels?.length && !sameSet(existing.patterns, channels)) throw errors.conflict("group_mismatch", `Group ${name} listens on ${existing.patterns.join(", ")}, not ${channels.join(", ")}`);
+      if (channels?.length && !sameSet(existing.patterns, channels)) {
+        this.#widen(principal, existing, channels, `Group ${name} listens on ${existing.patterns.join(", ")}, not ${channels.join(", ")}`);
+        existing = /** @type {any} */ (this.store.group(name));
+      }
       existing.patterns.forEach((pattern) => requirePattern(principal, "subscribe", pattern));
     }
     const now = this.now();

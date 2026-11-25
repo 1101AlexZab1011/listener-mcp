@@ -239,6 +239,8 @@ export class Store {
     this.db.prepare("INSERT INTO groups (name, patterns, start_seq, durable, exclusive, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(name, json(patterns), startSeq, durable ? 1 : 0, exclusive ? 1 : 0, createdBy, createdAt);
   }
 
+  setGroupPatterns(name, patterns) { this.db.prepare("UPDATE groups SET patterns = ? WHERE name = ?").run(json(patterns), name); }
+
   setGroupExclusive(name, exclusive) { this.db.prepare("UPDATE groups SET exclusive = ? WHERE name = ?").run(exclusive ? 1 : 0, name); }
 
   group(name) {
