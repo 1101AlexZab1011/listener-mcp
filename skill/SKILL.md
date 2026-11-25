@@ -45,6 +45,15 @@ For each delivered event:
    `listener_nack` it) so it is redelivered.
 4. Wake mode: end the turn to re-arm. Poll mode: call `listener_wait` again.
 
+## Answer where you were asked
+
+The person reads the app they wrote in, not your own conversation.
+
+- A message from an app (Agent Chat on the desktop or a phone, or any app's request) is answered only in that app, with `listener_reply`. That includes questions you need to ask back and confirmations you need.
+- Write nothing about it in your own conversation: no copy of the answer, no summary, no closing line. End the turn without text.
+- A message typed in your own conversation is answered there, as always.
+- The one exception: the app cannot carry the answer (the broker is down, the reply fails). Then say so in one short line in your own conversation.
+
 ## Stop listening
 
 When the user asks to stop, call `listener_detach` with `session` (and a

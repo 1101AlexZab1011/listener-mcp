@@ -11,6 +11,7 @@ import { ListenerClient } from "./client.mjs";
 import { instanceOf, listApps, loadApp } from "./apps.mjs";
 import { findProject } from "./project.mjs";
 import { covers, matches } from "./protocol.mjs";
+import { answerWhereAsked } from "./answer-rule.mjs";
 
 const cliPath = fileURLToPath(new URL("../bin/listener-mcp.mjs", import.meta.url));
 
@@ -184,6 +185,7 @@ export function formatEvents(events, { agent, tools = "mcp" } = {}) {
   lines.push(tools === "mcp"
     ? `Handle each event. When it expects an answer, use listener_reply with its event id. Then call listener_ack with session "${agent}" and event ids [${ids}]. Leave an event unacknowledged if handling failed, so it is redelivered.`
     : `Handle each event, reply with \`listener-mcp publish --reply-to <id>\`, then \`listener-mcp ack --agent ${agent} ${ids}\`.`);
+  lines.push(answerWhereAsked({ tools }));
   return lines.join("\n");
 }
 

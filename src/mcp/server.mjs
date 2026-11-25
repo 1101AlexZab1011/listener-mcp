@@ -9,6 +9,7 @@ import { z } from "zod";
 import { agentIdentities, attachSession, ensureBroker, formatEvents, identityAllowed, identityForApp, sessionIdentities, waitForSession } from "../agent.mjs";
 import { instanceOf, instanceOfGroup } from "../apps.mjs";
 import { hostOfAgent } from "../hosts/index.mjs";
+import { MCP_INSTRUCTIONS } from "../answer-rule.mjs";
 
 const HEARTBEAT_MS = 60_000;
 
@@ -20,7 +21,8 @@ const session = z.string().min(1).max(128).describe('This session\'s agent id, e
 
 export async function runMcpServer({ cwd = process.cwd(), env = process.env } = {}) {
   await ensureBroker({ env }).catch(() => {});
-  const server = new McpServer({ name: "listener-mcp", version: "0.1.2" });
+  // Its instructions carry the rule every agent follows (answer-rule.mjs): an app's message is answered in the app only.
+  const server = new McpServer({ name: "listener-mcp", version: "0.1.2" }, { instructions: MCP_INSTRUCTIONS });
   /** Sessions this process has worked for; their subscriptions are kept alive. */
   const sessions = new Set();
   // Read fresh on every call: credentials and app profiles can change while the session runs.

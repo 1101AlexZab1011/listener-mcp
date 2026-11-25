@@ -4,6 +4,7 @@
 import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { answerWhereAsked } from "../answer-rule.mjs";
 
 // Ours whether called as `listener-mcp hook`, through npx, or as "<node>" "<…>/listener-mcp.mjs" hook.
 const isOurs = (hook) => /listener-mcp(\.mjs)?"?\s+hook\b/.test(String(hook.command ?? ""));
@@ -135,6 +136,7 @@ export function sessionContext({ agent, subscriptions, project, apps = [], mode 
     lines.push(mode === "wake"
       ? "App events will wake this session as messages. Handle them, reply with listener_reply, then listener_ack."
       : "Call listener_wait to receive app events; handle them, reply with listener_reply, then listener_ack.");
+    lines.push(answerWhereAsked({ tools: "mcp" }));
   } else if (project?.config.attach) {
     const { group, channels } = project.config.attach;
     lines.push(`To listen to this project's app, use the listener skill (listener_attach with session "${agent}"; default ${group ? `group ${group}` : ""}${channels ? ` on ${channels.join(", ")}` : ""}).`);
