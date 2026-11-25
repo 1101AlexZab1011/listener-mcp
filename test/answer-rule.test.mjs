@@ -26,11 +26,15 @@ test("the rule: in the app only, nothing in the agent's own conversation, its ow
   assert.match(answerWhereAsked({ tools: "cli" }), /with `listener-mcp publish --reply-to <id>`/);
 });
 
-test("a session attached to an app is told the rule at start, in wake and in poll mode; one that is not attached is not", () => {
+test("a session is told the rule at start: attached (wake and poll), or able to attach to an app or its project's; one with nothing to attach to is not", () => {
   for (const mode of ["wake", "poll"]) {
     const text = sessionContext({ agent: "claude:s1", subscriptions: [{ group: "mail" }], mode });
     assert.match(text, RULE, mode);
   }
+  const fresh = sessionContext({ agent: "claude:s3", subscriptions: [], apps: [{ name: "mail" }], mode: "wake" });
+  assert.match(fresh, /Apps this session can listen to when the user asks: mail/);
+  assert.match(fresh, new RegExp(`Once attached: ${RULE.source}`));
+  assert.match(sessionContext({ agent: "codex:s4", subscriptions: [], project: { config: { attach: { group: "crm" } } }, mode: "poll" }), RULE);
   assert.doesNotMatch(sessionContext({ agent: "codex:s2", subscriptions: [], mode: "wake" }), RULE);
 });
 

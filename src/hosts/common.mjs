@@ -144,5 +144,7 @@ export function sessionContext({ agent, subscriptions, project, apps = [], mode 
   if (!subscriptions.length && apps.length) {
     lines.push(`Apps this session can listen to when the user asks: ${apps.map((app) => app.name).join(", ")} (listener_attach with session "${agent}" and app).`);
   }
+  // A session that may attach later is told the rule now too: most attach after they start.
+  if (!subscriptions.length && (apps.length || project?.config.attach)) lines.push(`Once attached: ${answerWhereAsked({ tools: "mcp" })}`);
   return lines.join("\n");
 }
