@@ -90,11 +90,12 @@ export class Bus {
     // A reply answers one event, and only someone who may publish on that event's channel may answer it: a reply
     // on the same channel, or from a token that may publish there too. Otherwise a token that can read a channel
     // (and so learn its events' ids) and publish on another could answer for it - a confirmation card asked on
-    // one device's channel answered from somewhere else.
+    // one device's channel answered from somewhere else. An event already gone (older than retention_days, so
+    // swept) is not checked: nobody can wait for its replies any more, and a late answer stays an ordinary
+    // publish on the sender's own channel.
     if (input.reply_to != null) {
       const answered = this.store.eventById(input.reply_to);
-      if (!answered) throw errors.notFound("reply_to names no event here");
-      if (!canPublish(principal, answered.channel)) throw errors.forbidden(`Token "${principal.name}" may not answer an event on ${answered.channel}: a reply goes on its event's channel, from a token that may publish there`);
+      if (answered && !canPublish(principal, answered.channel)) throw errors.forbidden(`Token "${principal.name}" may not answer an event on ${answered.channel}: a reply goes on its event's channel, from a token that may publish there`);
     }
     const now = this.now();
     const ttl = input.ttl_ms == null ? null : Number(input.ttl_ms);

@@ -175,8 +175,6 @@ test("a reply answers its own event: on that event's channel, or from a token th
   await assert.rejects(other.publish({ channel: "mail/chat/default", type: "reply", data: { answer: "yes" }, replyTo: card.id }), (error) => error.status === 403 && /may not answer an event on mail\/devices\/p1/.test(error.message));
   // Answering it on its own channel needs publish rights there, as any publish does.
   await assert.rejects(other.publish({ channel: "mail/devices/p1", type: "reply", data: { answer: "yes" }, replyTo: card.id }), (error) => error.status === 403);
-  // A reply naming an event that does not exist is refused too.
-  await assert.rejects(phone.publish({ channel: "mail/devices/p1", type: "reply", data: {}, replyTo: "evt_nothing" }), (error) => error.status === 404);
   assert.equal((await host.event(card.id)).replies.length, 0, "no answer was taken");
 
   // The phone answers on the card's channel: taken.
@@ -186,6 +184,22 @@ test("a reply answers its own event: on that event's channel, or from a token th
   const desk = await env.client("desk", ["publish:mail/devices/**", "publish:mail/answers/**", "read:mail/**"]);
   await desk.publish({ channel: "mail/answers/p1", type: "reply", data: { answer: "no" }, replyTo: card.id });
   assert.deepEqual((await host.event(card.id)).replies.map((reply) => reply.data.answer), ["yes", "no"]);
+});
+
+test("a late answer to an event already swept is an ordinary publish on the sender's own channel (F52)", async (t) => {
+  const env = await testBroker();
+  t.after(() => env.close());
+  const app = await env.client("mail-app", ["publish:mail/**", "read:mail/**"]);
+  const agent = await env.client("agent", ["read:mail/chat/**", "publish:mail/chat/**"]);
+  const asked = await app.publish({ channel: "mail/chat/default", data: { text: "still there?" } });
+  // Older than retention_days: the sweep deletes it.
+  env.broker.store.pruneEvents(Date.now() + 1);
+  await assert.rejects(app.event(asked.id), (error) => error.status === 404, "the event is gone");
+  const late = await agent.publish({ channel: "mail/chat/default", type: "reply", data: { text: "yes, sorry" }, replyTo: asked.id });
+  assert.equal(late.reply_to, asked.id);
+  assert.deepEqual((await app.events({ channel: "mail/chat/*" })).map((event) => event.data.text), ["yes, sorry"]);
+  // Still only where the sender may publish.
+  await assert.rejects(agent.publish({ channel: "mail/devices/p1", type: "reply", data: {}, replyTo: asked.id }), (error) => error.status === 403);
 });
 
 test("scopes limit what a token can do", async (t) => {
