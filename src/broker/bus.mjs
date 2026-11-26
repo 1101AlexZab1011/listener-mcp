@@ -16,7 +16,7 @@
 // whose groups the event belongs to; a woken waiter retries its lease and
 // parks again if something else took the event first.
 import { assertAgent, assertChannel, assertGroup, assertPattern, errors, matches, newId } from "../protocol.mjs";
-import { canRead, isAdmin, requireChannel, requirePattern } from "./auth.mjs";
+import { canPublish, canRead, isAdmin, requireChannel, requirePattern } from "./auth.mjs";
 
 const typePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_BATCH = 50;
@@ -87,6 +87,15 @@ export class Bus {
     const fromAgent = input.agent == null ? null : assertAgent(input.agent);
     const toAgent = input.to == null ? null : assertAgent(input.to);
     if (input.reply_to != null && typeof input.reply_to !== "string") throw errors.badRequest("reply_to must be an event id");
+    // A reply answers one event, and only someone who may publish on that event's channel may answer it: a reply
+    // on the same channel, or from a token that may publish there too. Otherwise a token that can read a channel
+    // (and so learn its events' ids) and publish on another could answer for it - a confirmation card asked on
+    // one device's channel answered from somewhere else.
+    if (input.reply_to != null) {
+      const answered = this.store.eventById(input.reply_to);
+      if (!answered) throw errors.notFound("reply_to names no event here");
+      if (!canPublish(principal, answered.channel)) throw errors.forbidden(`Token "${principal.name}" may not answer an event on ${answered.channel}: a reply goes on its event's channel, from a token that may publish there`);
+    }
     const now = this.now();
     const ttl = input.ttl_ms == null ? null : Number(input.ttl_ms);
     if (ttl != null && (!Number.isInteger(ttl) || ttl <= 0)) throw errors.badRequest("ttl_ms must be a positive integer");

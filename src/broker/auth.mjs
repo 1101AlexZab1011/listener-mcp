@@ -66,6 +66,12 @@ export function canRead(principal, channel) {
   return principal.scopes.some((scope) => scope.startsWith("read:") && matches(scope.slice(5), channel));
 }
 
+/** Can the principal publish on this concrete channel? */
+export function canPublish(principal, channel) {
+  if (isAdmin(principal)) return true;
+  return principal.scopes.some((scope) => scope.startsWith("publish:") && matches(scope.slice(8), channel));
+}
+
 /** A new scope list may not grant more than its creator holds. */
 export function requireDelegable(principal, scopes) {
   if (isAdmin(principal)) return;

@@ -159,6 +159,35 @@ test("request/reply waits for the agent's answer", async (t) => {
   assert.equal(result.replies[0].data.answer, 42);
 });
 
+test("a reply answers its own event: on that event's channel, or from a token that may publish there (F52)", async (t) => {
+  const env = await testBroker();
+  t.after(() => env.close());
+  // A confirmation card asked on one device's channel, and who waits for its answer.
+  const host = await env.client("host", ["publish:mail/devices/**", "read:mail/**"]);
+  const phone = await env.client("phone", ["read:mail/devices/p1", "publish:mail/devices/p1"]);
+  // Can read the phone's channel (so it learns the card's id) and publish elsewhere, not there.
+  const other = await env.client("other", ["read:mail/devices/p1", "read:mail/chat/**", "publish:mail/chat/**"]);
+  const card = await host.publish({ channel: "mail/devices/p1", type: "confirm", data: { question: "Send it?" } });
+  const asked = await other.event(card.id);
+  assert.equal(asked.id, card.id, "the other token can read the card");
+
+  // Answering it from another channel is refused, and nothing is added.
+  await assert.rejects(other.publish({ channel: "mail/chat/default", type: "reply", data: { answer: "yes" }, replyTo: card.id }), (error) => error.status === 403 && /may not answer an event on mail\/devices\/p1/.test(error.message));
+  // Answering it on its own channel needs publish rights there, as any publish does.
+  await assert.rejects(other.publish({ channel: "mail/devices/p1", type: "reply", data: { answer: "yes" }, replyTo: card.id }), (error) => error.status === 403);
+  // A reply naming an event that does not exist is refused too.
+  await assert.rejects(phone.publish({ channel: "mail/devices/p1", type: "reply", data: {}, replyTo: "evt_nothing" }), (error) => error.status === 404);
+  assert.equal((await host.event(card.id)).replies.length, 0, "no answer was taken");
+
+  // The phone answers on the card's channel: taken.
+  await phone.publish({ channel: "mail/devices/p1", type: "reply", data: { answer: "yes" }, replyTo: card.id });
+  assert.equal((await host.event(card.id)).replies[0].data.answer, "yes");
+  // A token that may publish on the card's channel may answer it from another channel (the host's own side).
+  const desk = await env.client("desk", ["publish:mail/devices/**", "publish:mail/answers/**", "read:mail/**"]);
+  await desk.publish({ channel: "mail/answers/p1", type: "reply", data: { answer: "no" }, replyTo: card.id });
+  assert.deepEqual((await host.event(card.id)).replies.map((reply) => reply.data.answer), ["yes", "no"]);
+});
+
 test("scopes limit what a token can do", async (t) => {
   const env = await testBroker();
   t.after(() => env.close());
